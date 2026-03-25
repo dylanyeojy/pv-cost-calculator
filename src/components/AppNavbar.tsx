@@ -1,6 +1,7 @@
-import { Calculator, Settings } from 'lucide-react';
+import { Calculator, LogOut } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { ThemeToggle } from './ThemeToggle';
+import { useAuth } from '@/lib/auth';
 
 const navItems = [
   { title: 'New Estimate', url: '/' },
@@ -9,6 +10,12 @@ const navItems = [
 ];
 
 export function AppNavbar() {
+  const { user, signOut } = useAuth();
+
+  const initials = user?.displayName
+    ? user.displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    : user?.email?.[0].toUpperCase() ?? '?';
+
   return (
     <header className="sticky top-0 z-50 no-print">
       <div className="backdrop-blur-md bg-background/80 border-b border-border/60">
@@ -42,11 +49,31 @@ export function AppNavbar() {
             ))}
           </nav>
 
-          {/* Spacer */}
+          {/* Right side */}
           <div className="flex-1" />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
 
-          {/* Theme toggle — right */}
-          <ThemeToggle />
+            {/* User avatar */}
+            {user && (
+              <div className="flex items-center gap-2 ml-1">
+                <div
+                  title={user.email ?? ''}
+                  className="h-8 w-8 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center text-xs font-semibold text-primary select-none"
+                >
+                  {initials}
+                </div>
+                <button
+                  onClick={signOut}
+                  title="Sign out"
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+          </div>
+
         </div>
       </div>
     </header>
