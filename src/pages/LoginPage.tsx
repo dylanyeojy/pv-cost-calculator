@@ -3,10 +3,10 @@ import { useAuth } from '@/lib/auth';
 import { Calculator } from 'lucide-react';
 import { AnimatedBackground } from '@/components/AnimatedBackground';
 
-type View = 'signin' | 'signup' | 'forgot';
+type View = 'signin' | 'signup' | 'forgot' | 'verify';
 
 export default function LoginPage() {
-  const { signInWithEmail, signUp, resetPassword } = useAuth();
+  const { signInWithEmail, signUp, resendVerification, resetPassword } = useAuth();
   const [view, setView] = useState<View>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -43,15 +43,33 @@ export default function LoginPage() {
       setError('Passwords do not match.');
       return;
     }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
       return;
     }
     setLoading(true);
     try {
       await signUp(email, password);
+      // On success, show the verify screen
+      setPassword('');
+      setConfirmPassword('');
+      setView('verify');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Sign-up failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    try {
+      await resendVerification();
+      setSuccess('Verification email resent. Check your inbox.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to resend email.');
     } finally {
       setLoading(false);
     }
@@ -89,6 +107,7 @@ export default function LoginPage() {
                 {view === 'signin' && 'Sign in to your account'}
                 {view === 'signup' && 'Create a new account'}
                 {view === 'forgot' && 'Reset your password'}
+                {view === 'verify' && 'Verify your email'}
               </p>
             </div>
           </div>
@@ -124,7 +143,7 @@ export default function LoginPage() {
                   id="password"
                   type="password"
                   autoComplete="current-password"
-                  placeholder="••••••••"
+                  placeholder="Your password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   required
@@ -170,7 +189,7 @@ export default function LoginPage() {
                   id="su-password"
                   type="password"
                   autoComplete="new-password"
-                  placeholder="Min. 8 characters"
+                  placeholder="Password (min. 6 characters)"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   required
@@ -183,12 +202,23 @@ export default function LoginPage() {
                   id="su-confirm"
                   type="password"
                   autoComplete="new-password"
-                  placeholder="••••••••"
+                  placeholder="Confirm your password"
                   value={confirmPassword}
                   onChange={e => setConfirmPassword(e.target.value)}
                   required
                   className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 />
+                {confirmPassword.length > 0 && (
+                  password === confirmPassword ? (
+                    <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                      <span>✓</span> Passwords match
+                    </p>
+                  ) : (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <span>✗</span> Passwords do not match
+                    </p>
+                  )
+                )}
               </div>
               {error && <p className="text-xs text-destructive">{error}</p>}
               <button
@@ -205,6 +235,32 @@ export default function LoginPage() {
                 </button>
               </p>
             </form>
+          )}
+
+          {/* Verify email */}
+          {view === 'verify' && (
+            <div className="flex flex-col gap-4">
+              <div className="rounded-lg bg-primary/8 border border-primary/20 px-4 py-3 text-sm text-foreground">
+                We've sent a verification link to <span className="font-medium">{email}</span>. Click the link in that email to activate your account.
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Didn't receive it? Check your spam folder, or resend the email.
+              </p>
+              {error && <p className="text-xs text-destructive">{error}</p>}
+              {success && <p className="text-xs text-green-600 dark:text-green-400">{success}</p>}
+              <button
+                onClick={handleResend}
+                disabled={loading}
+                className="h-9 w-full rounded-md border border-border bg-background text-sm font-medium text-foreground hover:bg-accent/40 transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Sending…' : 'Resend verification email'}
+              </button>
+              <p className="text-center text-xs text-muted-foreground">
+                <button type="button" onClick={() => reset('signin')} className="text-foreground hover:underline font-medium">
+                  Back to sign in
+                </button>
+              </p>
+            </div>
           )}
 
           {/* Forgot Password */}

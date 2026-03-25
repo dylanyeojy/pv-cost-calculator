@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react';
 import { Calculator, LogOut } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { ThemeToggle } from './ThemeToggle';
@@ -11,10 +12,23 @@ const navItems = [
 
 export function AppNavbar() {
   const { user, signOut } = useAuth();
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const initials = user?.displayName
     ? user.displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
     : user?.email?.[0].toUpperCase() ?? '?';
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 no-print">
@@ -54,22 +68,30 @@ export function AppNavbar() {
           <div className="flex items-center gap-2">
             <ThemeToggle />
 
-            {/* User avatar */}
+            {/* User avatar + dropdown */}
             {user && (
-              <div className="flex items-center gap-2 ml-1">
-                <div
-                  title={user.email ?? ''}
-                  className="h-8 w-8 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center text-xs font-semibold text-primary select-none"
+              <div className="relative ml-1" ref={menuRef}>
+                <button
+                  onClick={() => setOpen(o => !o)}
+                  className="h-8 w-8 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center text-xs font-semibold text-primary select-none hover:bg-primary/25 transition-colors"
                 >
                   {initials}
-                </div>
-                <button
-                  onClick={signOut}
-                  title="Sign out"
-                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
-                >
-                  <LogOut className="h-4 w-4" />
                 </button>
+
+                {open && (
+                  <div className="absolute right-0 mt-2 w-52 rounded-lg border border-border bg-card shadow-lg py-1 z-50">
+                    <div className="px-3 py-2 border-b border-border">
+                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                    <button
+                      onClick={() => { setOpen(false); signOut(); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent/40 transition-colors"
+                    >
+                      <LogOut className="h-4 w-4 text-muted-foreground" />
+                      Sign out
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
