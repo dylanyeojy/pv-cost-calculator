@@ -65,7 +65,7 @@ export default function HistoryPage() {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <p className="text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(entry.timestamp).toLocaleDateString('en-MY')}
+                        {new Date(entry.timestamp).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true }).replace(/am/i, 'AM').replace(/pm/i, 'PM')}, {new Date(entry.timestamp).toLocaleDateString('en-MY')}
                       </p>
                       <button
                         onClick={(e) => handleDelete(e, entry.id)}
