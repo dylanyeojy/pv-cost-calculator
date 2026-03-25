@@ -1,0 +1,279 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Light theme — steel blue / blueprint */
+  :root {
+    --background: 210 30% 96%;
+    --foreground: 215 60% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 60% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 60% 10%;
+
+    --primary: 213 85% 46%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 30% 92%;
+    --secondary-foreground: 215 60% 10%;
+
+    --muted: 210 30% 93%;
+    --muted-foreground: 215 20% 45%;
+
+    --accent: 213 85% 92%;
+    --accent-foreground: 213 85% 25%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 30% 87%;
+    --input: 214 30% 87%;
+    --ring: 213 85% 46%;
+
+    --radius: 0.75rem;
+
+    --warning: 45 93% 47%;
+    --warning-foreground: 45 93% 12%;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 215 20% 45%;
+    --sidebar-primary: 213 85% 46%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 213 85% 92%;
+    --sidebar-accent-foreground: 213 85% 25%;
+    --sidebar-border: 214 30% 87%;
+    --sidebar-ring: 213 85% 46%;
+  }
+
+  /* Dark theme — industrial HMI / control room */
+  .dark {
+    --background: 220 28% 7%;
+    --foreground: 210 40% 88%;
+
+    --card: 220 25% 11%;
+    --card-foreground: 210 40% 88%;
+
+    --popover: 220 25% 11%;
+    --popover-foreground: 210 40% 88%;
+
+    --primary: 213 85% 60%;
+    --primary-foreground: 220 28% 7%;
+
+    --secondary: 220 25% 15%;
+    --secondary-foreground: 210 40% 88%;
+
+    --muted: 220 25% 15%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 213 85% 18%;
+    --accent-foreground: 213 85% 75%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 20% 20%;
+    --input: 220 20% 20%;
+    --ring: 213 85% 60%;
+
+    --warning: 45 93% 47%;
+    --warning-foreground: 45 93% 12%;
+
+    --sidebar-background: 220 25% 11%;
+    --sidebar-foreground: 215 20% 55%;
+    --sidebar-primary: 213 85% 60%;
+    --sidebar-primary-foreground: 220 28% 7%;
+    --sidebar-accent: 213 85% 18%;
+    --sidebar-accent-foreground: 213 85% 75%;
+    --sidebar-border: 220 20% 20%;
+    --sidebar-ring: 213 85% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer utilities {
+  .card-shadow {
+    box-shadow: 0 1px 3px 0 hsl(0 0% 0% / 0.06), 0 1px 2px -1px hsl(0 0% 0% / 0.06);
+  }
+  .card-shadow-lg {
+    box-shadow: 0 4px 12px -2px hsl(0 0% 0% / 0.08), 0 2px 6px -2px hsl(0 0% 0% / 0.05);
+  }
+  .dark .card-shadow {
+    box-shadow: 0 1px 3px 0 hsl(0 0% 0% / 0.3), 0 1px 2px -1px hsl(0 0% 0% / 0.2);
+  }
+  .dark .card-shadow-lg {
+    box-shadow: 0 4px 16px -2px hsl(0 0% 0% / 0.4), 0 2px 8px -2px hsl(0 0% 0% / 0.25);
+  }
+}
+
+/* Glass card effect — cards float above the animated background */
+.glass-card {
+  background-color: hsl(var(--card) / 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.dark .glass-card {
+  background-color: hsl(var(--card) / 0.82);
+}
+
+/* Button hover glow — applied via the Button component base class */
+.btn-lift {
+  transition: box-shadow 0.15s ease;
+}
+.btn-lift:hover:not(:disabled) {
+  box-shadow: 0 4px 14px hsl(var(--primary) / 0.22);
+}
+.btn-lift:active:not(:disabled) {
+  box-shadow: none;
+}
+
+/* Print: invoice document only */
+.print-invoice-doc {
+  display: none;
+}
+
+@media print {
+  body {
+    background: white !important;
+  }
+
+  canvas {
+    display: none !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-break {
+    page-break-before: always;
+  }
+
+  /* Show only the invoice document, hide all screen content */
+  .screen-only {
+    display: none !important;
+  }
+
+  .print-invoice-doc {
+    display: block !important;
+    width: 100%;
+    padding: 16mm 20mm;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    color: #0f172a;
+    background: white;
+  }
+
+  .print-invoice-doc .pi-title {
+    font-size: 20pt;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: #0f172a;
+  }
+
+  .print-invoice-doc .pi-app {
+    font-size: 8pt;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+
+  .print-invoice-doc .pi-label {
+    font-size: 7.5pt;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+
+  .print-invoice-doc .pi-value {
+    font-size: 9.5pt;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  .print-invoice-doc .pi-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .print-invoice-doc table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+
+  .print-invoice-doc th {
+    font-size: 7.5pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #475569;
+    border-bottom: 1.5pt solid #cbd5e1;
+    padding: 4pt 6pt;
+    text-align: left;
+  }
+
+  .print-invoice-doc th.right,
+  .print-invoice-doc td.right {
+    text-align: right;
+  }
+
+  .print-invoice-doc td {
+    padding: 5pt 6pt;
+    border-bottom: 0.5pt solid #e2e8f0;
+    color: #0f172a;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9pt;
+  }
+
+  .print-invoice-doc tr.subtotal td {
+    font-weight: 700;
+    border-top: 1pt solid #cbd5e1;
+    border-bottom: none;
+    background-color: #f8fafc;
+  }
+
+  .print-invoice-doc .pi-total-row {
+    margin-top: 8pt;
+    padding: 8pt 6pt;
+    background-color: #f0f7ff;
+    border-top: 2pt solid #1a7fe8;
+    border-bottom: 2pt solid #1a7fe8;
+  }
+
+  .print-invoice-doc .pi-divider {
+    border: none;
+    border-top: 0.75pt solid #e2e8f0;
+    margin: 8pt 0;
+  }
+
+  .print-invoice-doc .pi-section-header {
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #1a7fe8;
+    margin-bottom: 4pt;
+    margin-top: 10pt;
+  }
+}
