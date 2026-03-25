@@ -1,12 +1,13 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import {
   onAuthStateChanged,
-  signInWithPopup,
   signInWithEmailAndPassword as fbSignInWithEmail,
+  createUserWithEmailAndPassword as fbCreateUser,
+  sendPasswordResetEmail as fbSendReset,
   signOut as fbSignOut,
   User,
 } from 'firebase/auth';
-import { auth, googleProvider } from './firebase';
+import { auth } from './firebase';
 
 const ALLOWED_DOMAIN = 'finematrix.com';
 const ALLOWED_EMAILS = ['dylanyeois@gmail.com'];
@@ -17,11 +18,16 @@ function isAllowed(email: string | null): boolean {
   return lower.endsWith(`@${ALLOWED_DOMAIN}`) || ALLOWED_EMAILS.includes(lower);
 }
 
+function isAllowedForSignUp(email: string): boolean {
+  return email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`);
+}
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -34,7 +40,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     return onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser && !isAllowed(firebaseUser.email)) {
-        // Signed in with a disallowed domain — boot them out immediately
         await fbSignOut(auth);
         setUser(null);
       } else {
@@ -44,25 +49,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const signInWithGoogle = async () => {
-    const result = await signInWithPopup(auth, googleProvider);
-    if (!isAllowed(result.user.email)) {
-      await fbSignOut(auth);
-      throw new Error(`Only @${ALLOWED_DOMAIN} accounts are allowed.`);
-    }
-  };
-
   const signInWithEmail = async (email: string, password: string) => {
     if (!isAllowed(email)) {
-      throw new Error(`Only @${ALLOWED_DOMAIN} accounts are allowed.`);
+      throw new Error(`Only @${ALLOWED_DOMAIN} accounts are permitted.`);
     }
     await fbSignInWithEmail(auth, email, password);
+  };
+
+  const signUp = async (email: string, password: string) => {
+    if (!isAllowedForSignUp(email)) {
+      throw new Error(`Sign-up is restricted to @${ALLOWED_DOMAIN} accounts.`);
+    }
+    await fbCreateUser(auth, email, password);
+  };
+
+  const resetPassword = async (email: string) => {
+    await fbSendReset(auth, email);
   };
 
   const signOut = () => fbSignOut(auth);
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signInWithEmail, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signInWithEmail, signUp, resetPassword, signOut }}>
       {children}
     </AuthContext.Provider>
   );
