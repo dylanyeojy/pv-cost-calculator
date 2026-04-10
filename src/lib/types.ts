@@ -239,11 +239,9 @@ export interface ZickResult {
   totalSaddleCost: number;
 }
 
-export interface SupportResult {
-  type: 'legs' | 'saddles';
-  legs?: LegSupportResult;
-  saddles?: ZickResult;
-}
+export type SupportResult =
+  | { type: 'legs'; legs: LegSupportResult }
+  | { type: 'saddles'; saddles: ZickResult };
 
 export interface CalculationResults {
   inputs: VesselInputs;
@@ -295,6 +293,8 @@ export const CS_DENSITY = 7850; // kg/m³
 export const SS_DENSITY = 8000;
 
 // ─── ASME Section II Part D — Allowable stress tables [tempC, MPa] ───
+// SS316L uses the SS316 table (conservative — SS316L allowable stress is
+// equal to or slightly higher than SS316 at most temperatures per ASME IID).
 export const ALLOWABLE_STRESS_SA516_GR70: [number, number][] = [
   [20,138],[50,138],[100,138],[150,138],[200,131],[250,125],[300,118],[350,110],[400,100],
 ];
@@ -306,14 +306,7 @@ export const ALLOWABLE_STRESS_SS316: [number, number][] = [
 ];
 
 // ─── Manhole fastener lookup ───
-export interface ManholeFastenerData {
-  boltCount: number;
-  boltSpec: string;
-  nutCount: number;
-  washerCount: number;
-}
-
-export const MANHOLE_FASTENERS: Record<string, ManholeFastenerData> = {
+export const MANHOLE_FASTENERS: Record<string, ManholeFastenerSet> = {
   'B16.5_24': { boltCount: 20, boltSpec: '1¼" × 170 mm (ASTM A193 B7)', nutCount: 20, washerCount: 40 },
   'PN10_DN600': { boltCount: 20, boltSpec: 'M27 × 95 mm (Grade 8.8)', nutCount: 20, washerCount: 40 },
   'PN16_DN600': { boltCount: 20, boltSpec: 'M33 × 115 mm (Grade 8.8)', nutCount: 20, washerCount: 40 },
