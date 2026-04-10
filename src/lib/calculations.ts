@@ -1,7 +1,10 @@
 import {
   VesselInputs, PlateSize, PricingData, AdvancedSettings, DEFAULT_ADVANCED,
   CS_PLATE_SIZES, SS_PLATE_SIZES, CS_DENSITY, SS_DENSITY,
+  CS_THICKNESSES, SS_THICKNESSES,
   ShellOption, CourseDetail, CalculationResults,
+  MaterialType, SSGrade, HeadType,
+  ALLOWABLE_STRESS_SA516_GR70, ALLOWABLE_STRESS_SS304, ALLOWABLE_STRESS_SS316,
 } from './types';
 
 // ─── Geometry helpers ───
@@ -335,6 +338,92 @@ export function calculateAll(inputs: VesselInputs, pricing: PricingData, advance
     grandTotal: bestCost,
     timestamp: Date.now(),
   };
+}
+
+// ─── ASME Section II Part D — Allowable stress lookup ───
+
+export function getASMEAllowableStress(
+  materialType: MaterialType,
+  ssGrade: SSGrade | undefined,
+  tempC: number,
+): number {
+  if (tempC < 20 || tempC > 400) {
+    throw new Error(`Design temperature ${tempC}°C is outside the supported range (20–400°C).`);
+  }
+  let table: [number, number][];
+  if (materialType === 'carbon_steel') {
+    table = ALLOWABLE_STRESS_SA516_GR70;
+  } else if (ssGrade === 'SS304') {
+    table = ALLOWABLE_STRESS_SS304;
+  } else {
+    table = ALLOWABLE_STRESS_SS316;
+  }
+  for (let i = 0; i < table.length - 1; i++) {
+    const [t0, s0] = table[i];
+    const [t1, s1] = table[i + 1];
+    if (tempC >= t0 && tempC <= t1) {
+      return s0 + (s1 - s0) * (tempC - t0) / (t1 - t0);
+    }
+  }
+  return table[table.length - 1][1];
+}
+
+// ─── Liquid head pressure ───
+
+export function calculateLiquidHead(liquidHeightMm: number, fluidDensityKgM3: number): number {
+  return (fluidDensityKgM3 * 9.81 * (liquidHeightMm / 1000)) / 1e6;
+}
+
+// ─── UG-27: Cylindrical shell under internal pressure ───
+
+function getNextNominalThickness(tMm: number, materialType: MaterialType): number {
+  const list = materialType === 'carbon_steel' ? CS_THICKNESSES : SS_THICKNESSES;
+  const next = list.find(t => t >= tMm);
+  return next ?? list[list.length - 1];
+}
+
+export function calculateUG27Shell(
+  P_MPa: number,
+  R_mm: number,
+  S_MPa: number,
+  E: number,
+  CA_mm: number,
+  materialType: MaterialType,
+): { tMinMm: number; nominalMm: number; thinWallWarning: boolean } {
+  const tMin = (P_MPa * R_mm) / (S_MPa * E - 0.6 * P_MPa);
+  const tRequired = tMin + CA_mm;
+  const nominal = getNextNominalThickness(tRequired, materialType);
+  const thinWallWarning = tMin >= R_mm / 2;
+  return { tMinMm: tMin, nominalMm: nominal, thinWallWarning };
+}
+
+// ─── UG-32: Formed heads under internal pressure ───
+
+export function calculateUG32Head(
+  P_MPa: number,
+  D_mm: number,
+  headType: HeadType,
+  S_MPa: number,
+  E: number,
+  CA_mm: number,
+  materialType: MaterialType,
+): { tMinMm: number; tFormedMm: number; nominalMm: number } {
+  let tMin: number;
+  if (headType === 'ellipsoidal') {
+    tMin = (P_MPa * D_mm) / (2 * S_MPa * E - 0.2 * P_MPa);
+  } else if (headType === 'torispherical') {
+    const L = D_mm;
+    tMin = (0.885 * P_MPa * L) / (S_MPa * E - 0.1 * P_MPa);
+  } else if (headType === 'hemispherical') {
+    const L = D_mm / 2;
+    tMin = (P_MPa * L) / (2 * S_MPa * E - 0.2 * P_MPa);
+  } else {
+    tMin = D_mm * Math.sqrt(0.33 * P_MPa / S_MPa);
+  }
+  const tFormed = tMin / (1 - 0.10);
+  const tRequired = tFormed + CA_mm;
+  const nominal = getNextNominalThickness(tRequired, materialType);
+  return { tMinMm: tMin, tFormedMm: tFormed, nominalMm: nominal };
 }
 
 export function formatCurrency(value: number): string {
