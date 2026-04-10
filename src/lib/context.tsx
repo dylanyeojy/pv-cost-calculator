@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { VesselInputs, CalculationResults, PricingData, DEFAULT_PRICING, AdvancedSettings, DEFAULT_ADVANCED, HistoryEntry, MaterialType, SSGrade, DishEndInputs, HeadType } from './types';
-import { calculateAll } from './calculations';
+import { VesselInputs, CalculationResults, PricingData, DEFAULT_PRICING, AdvancedSettings, DEFAULT_ADVANCED, HistoryEntry, MaterialType, SSGrade, DishEndInputs, HeadType, VesselOrientation, NozzleSpec, LegInputs, SaddleInputs } from './types';
+import { calculateAll, getASMEAllowableStress, calculateLiquidHead, calculateUG27Shell, calculateUG32Head, calculateFilterPlates, calculateNozzleBOM, calculateLegs, calculateZickSaddle } from './calculations';
 import { calculateDishEnd, suggestedSF } from './dishEndCalculations';
 import { fetchHistory, saveEstimate, deleteEstimate, fetchPricing, savePricing, fetchAdvanced, saveAdvanced } from './firestore';
 import { toast } from 'sonner';
@@ -42,6 +42,17 @@ const defaultInputs: VesselInputs = {
   ssGrade: 'SS304' as SSGrade,
   rubberLining: false,
   quantity: 1,
+  // Phase 2 defaults
+  orientation: 'vertical' as VesselOrientation,
+  jointEfficiency: 1.0,
+  corrosionAllowance: 3,
+  fluidDensity: 1000,
+  liquidHeight: 0,
+  totalDesignPressureOverride: 0,
+  filterPlateCount: 0,
+  nozzles: [] as NozzleSpec[],
+  legInputs: { pipeOD: 114.3, pipeThickness: 6.02, legLength: 600 } as LegInputs,
+  saddleInputs: { angle: 120, width: 300, distanceA: 500 } as SaddleInputs,
 };
 
 const defaultDishEndInputs: DishEndInputs = {
@@ -102,6 +113,77 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Add dish end best cost to grand total
       if (dishResult.nestingOptions.length > 0) {
         calc.grandTotal += (dishResult.nestingOptions[0].cost ?? 0);
+      }
+    }
+
+    // ─── Phase 2: ASME thickness ───
+    const { id } = calc;
+    if (inputs.designPressure > 0 && inputs.designTemperature >= 20 && inputs.designTemperature <= 400) {
+      try {
+        const S = getASMEAllowableStress(inputs.materialType, inputs.ssGrade, inputs.designTemperature);
+        const P_top_MPa = inputs.designPressure / 1000; // kPa → MPa
+        const liquidMPa = inputs.orientation === 'vertical'
+          ? calculateLiquidHead(inputs.liquidHeight, inputs.fluidDensity)
+          : 0;
+        const P_total = inputs.totalDesignPressureOverride > 0
+          ? inputs.totalDesignPressureOverride / 1000
+          : P_top_MPa + liquidMPa;
+        const R_mm = id / 2;
+        const shellResult = calculateUG27Shell(P_total, R_mm, S, inputs.jointEfficiency, inputs.corrosionAllowance, inputs.materialType);
+        const headType = calc.dishEnd ? calc.dishEnd.inputs.headType : 'ellipsoidal';
+        const headResult = calculateUG32Head(P_total, id, headType, S, inputs.jointEfficiency, inputs.corrosionAllowance, inputs.materialType);
+        calc.asmeThickness = {
+          totalDesignPressureMPa: P_total,
+          liquidHeadMPa: liquidMPa,
+          allowableStressMPa: S,
+          shellTminMm: shellResult.tMinMm,
+          shellNominalMm: shellResult.nominalMm,
+          shellThinWallWarning: shellResult.thinWallWarning,
+          headTminMm: headResult.tMinMm,
+          headTformedMm: headResult.tFormedMm,
+          headNominalMm: headResult.nominalMm,
+        };
+      } catch {
+        // Out-of-range temperature — skip silently (form validation catches it)
+      }
+    }
+
+    // ─── Phase 2: Filter plates ───
+    if (inputs.filterPlateCount > 0) {
+      const pricePerKg = inputs.materialType === 'carbon_steel' ? pricing.cs_plate_per_kg : pricing.ss_plate_per_kg;
+      calc.filterPlates = calculateFilterPlates(inputs.filterPlateCount, id, inputs.materialType, pricePerKg);
+      calc.grandTotal += calc.filterPlates.totalCost;
+    }
+
+    // ─── Phase 2: Nozzle BOM ───
+    if (inputs.nozzles.length > 0) {
+      calc.nozzleBOM = calculateNozzleBOM(inputs.nozzles);
+    }
+
+    // ─── Phase 2: Supports ───
+    const supportPricePerKg = inputs.materialType === 'carbon_steel' ? pricing.cs_plate_per_kg : pricing.ss_plate_per_kg;
+    if (inputs.orientation === 'vertical') {
+      const legs = calculateLegs(inputs.legInputs, inputs.materialType, supportPricePerKg);
+      calc.support = { type: 'legs', legs };
+      calc.grandTotal += legs.totalCost;
+    } else {
+      const shellWeightN = calc.shellOptions[0]
+        ? (calc.shellOptions[0].totalWeight ?? 0) * 9.81
+        : 0;
+      const headWeightN = calc.dishEnd ? calc.dishEnd.totalWeightKg * 9.81 : 0;
+      const totalWeightN = shellWeightN + headWeightN;
+      if (totalWeightN > 0 && calc.asmeThickness) {
+        const H_mm = id / 4;
+        const saddles = calculateZickSaddle(
+          { L: inputs.shellLength, OD: calc.od, t: inputs.plateThickness, H: H_mm },
+          inputs.saddleInputs,
+          totalWeightN,
+          calc.asmeThickness.allowableStressMPa,
+          inputs.materialType,
+          supportPricePerKg,
+        );
+        calc.support = { type: 'saddles', saddles };
+        calc.grandTotal += saddles.totalSaddleCost;
       }
     }
 
