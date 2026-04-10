@@ -18,6 +18,11 @@ import {
     SS_THICKNESSES,
     HeadType,
     StraightFace,
+    VesselOrientation,
+    NozzleSpec,
+    FlangeStandard,
+    FlangeType,
+    NozzleItemType,
 } from "@/lib/types";
 import { suggestedSF, HEAD_TYPE_LABELS } from "@/lib/dishEndCalculations";
 import {
@@ -26,6 +31,9 @@ import {
     CircleDot,
     Minus,
     Plus as PlusIcon,
+    Layers,
+    Circle,
+    Trash2,
 } from "lucide-react";
 import NumberFlow from "@number-flow/react";
 
@@ -130,6 +138,126 @@ export default function Index() {
                             />
                         </div>
                     </div>
+                </CardContent>
+            </Card>
+
+            {/* Card — Orientation & Design Parameters */}
+            <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl hover:border-primary/40 transition-colors duration-200">
+                <CardHeader className="pb-3">
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <Ruler className="h-4 w-4 text-primary" />
+                        Orientation & Design Parameters
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                    <div className="space-y-2">
+                        <Label>Vessel Orientation</Label>
+                        <Select
+                            value={inputs.orientation}
+                            onValueChange={(v) => update("orientation", v as VesselOrientation)}
+                        >
+                            <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="vertical">Vertical (standing upright)</SelectItem>
+                                <SelectItem value="horizontal">Horizontal (saddle-supported)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div className="space-y-2">
+                            <Label>Design Pressure (kPa)</Label>
+                            <Input
+                                type="number"
+                                min={0}
+                                value={inputs.designPressure || ""}
+                                onChange={(e) => update("designPressure", parseFloat(e.target.value) || 0)}
+                                placeholder="e.g. 1000"
+                                className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Design Temperature (°C)</Label>
+                            <Input
+                                type="number"
+                                min={20}
+                                max={400}
+                                value={inputs.designTemperature || ""}
+                                onChange={(e) => update("designTemperature", parseFloat(e.target.value) || 20)}
+                                placeholder="20–400"
+                                className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Joint Efficiency (E)</Label>
+                            <Select
+                                value={String(inputs.jointEfficiency)}
+                                onValueChange={(v) => update("jointEfficiency", parseFloat(v))}
+                            >
+                                <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="1">1.00 — Full radiography (RT1/RT2)</SelectItem>
+                                    <SelectItem value="0.85">0.85 — Spot radiography (RT3)</SelectItem>
+                                    <SelectItem value="0.7">0.70 — No radiography (RT4)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Corrosion Allowance (mm)</Label>
+                            <Input
+                                type="number"
+                                min={0}
+                                step={0.5}
+                                value={inputs.corrosionAllowance ?? ""}
+                                onChange={(e) => update("corrosionAllowance", parseFloat(e.target.value) || 0)}
+                                placeholder="e.g. 3"
+                                className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                            />
+                        </div>
+                    </div>
+
+                    {inputs.orientation === "vertical" && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            <div className="space-y-2">
+                                <Label>Fluid Density (kg/m³)</Label>
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    value={inputs.fluidDensity || ""}
+                                    onChange={(e) => update("fluidDensity", parseFloat(e.target.value) || 1000)}
+                                    placeholder="1000 (water)"
+                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Liquid Height in Vessel (mm)</Label>
+                                <Input
+                                    type="number"
+                                    min={0}
+                                    value={inputs.liquidHeight || ""}
+                                    onChange={(e) => update("liquidHeight", parseFloat(e.target.value) || 0)}
+                                    placeholder="e.g. 3000"
+                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                                />
+                            </div>
+                            <div className="space-y-2 md:col-span-2">
+                                <Label>Total Design Pressure Override (kPa)</Label>
+                                <Input
+                                    type="number"
+                                    min={0}
+                                    value={inputs.totalDesignPressureOverride || ""}
+                                    onChange={(e) => update("totalDesignPressureOverride", parseFloat(e.target.value) || 0)}
+                                    placeholder="0 = auto (top pressure + liquid head)"
+                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                                />
+                                <p className="text-xs text-muted-foreground">Leave 0 to auto-calculate. Enter a value to override.</p>
+                            </div>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
@@ -649,6 +777,244 @@ export default function Index() {
                             </div>
                         )}
                     </div>
+                </CardContent>
+            </Card>
+
+            {/* Card — Filter Plates */}
+            <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl hover:border-primary/40 transition-colors duration-200">
+                <CardHeader className="pb-3">
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <Layers className="h-4 w-4 text-primary" />
+                        Filter Plates
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                    <div className="space-y-2">
+                        <Label>Number of Filter Plates</Label>
+                        <p className="text-xs text-muted-foreground">
+                            Circular plates at vessel ID. CS: 22.3 mm thick · SS: 22 mm thick
+                        </p>
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => update("filterPlateCount", Math.max(0, inputs.filterPlateCount - 1))}
+                                className="h-9 w-9 rounded-lg border border-input flex items-center justify-center hover:bg-secondary"
+                            >
+                                <Minus className="h-4 w-4" />
+                            </button>
+                            <span className="w-10 text-center font-mono text-sm">{inputs.filterPlateCount}</span>
+                            <button
+                                type="button"
+                                onClick={() => update("filterPlateCount", inputs.filterPlateCount + 1)}
+                                className="h-9 w-9 rounded-lg border border-input flex items-center justify-center hover:bg-secondary"
+                            >
+                                <PlusIcon className="h-4 w-4" />
+                            </button>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Card — Nozzles & Manholes */}
+            <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl hover:border-primary/40 transition-colors duration-200">
+                <CardHeader className="pb-3">
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <Circle className="h-4 w-4 text-primary" />
+                        Nozzles & Manholes
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {inputs.nozzles.map((nozzle, idx) => (
+                        <div key={idx} className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end p-3 rounded-lg bg-secondary/30">
+                            <div className="space-y-1">
+                                <Label className="text-xs">Type</Label>
+                                <Select
+                                    value={nozzle.type}
+                                    onValueChange={(v) => {
+                                        const updated = [...inputs.nozzles];
+                                        updated[idx] = { ...updated[idx], type: v as NozzleItemType };
+                                        update("nozzles", updated);
+                                    }}
+                                >
+                                    <SelectTrigger className="h-9 bg-background text-sm">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="nozzle">Nozzle</SelectItem>
+                                        <SelectItem value="manhole">Manhole</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs">Standard</Label>
+                                <Select
+                                    value={nozzle.standard}
+                                    onValueChange={(v) => {
+                                        const updated = [...inputs.nozzles];
+                                        updated[idx] = { ...updated[idx], standard: v as FlangeStandard };
+                                        update("nozzles", updated);
+                                    }}
+                                >
+                                    <SelectTrigger className="h-9 bg-background text-sm">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="B16.5">ASME B16.5</SelectItem>
+                                        <SelectItem value="PN10">PN10 (DIN/EN)</SelectItem>
+                                        <SelectItem value="PN16">PN16 (DIN/EN)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs">Size</Label>
+                                <Input
+                                    value={nozzle.size}
+                                    onChange={(e) => {
+                                        const updated = [...inputs.nozzles];
+                                        updated[idx] = { ...updated[idx], size: e.target.value };
+                                        update("nozzles", updated);
+                                    }}
+                                    placeholder={nozzle.type === 'manhole' ? (nozzle.standard === 'B16.5' ? '24"' : 'DN600') : 'NPS 4'}
+                                    className="h-9 bg-background text-sm"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs">Flange Face</Label>
+                                <Select
+                                    value={nozzle.flangeType}
+                                    onValueChange={(v) => {
+                                        const updated = [...inputs.nozzles];
+                                        updated[idx] = { ...updated[idx], flangeType: v as FlangeType };
+                                        update("nozzles", updated);
+                                    }}
+                                >
+                                    <SelectTrigger className="h-9 bg-background text-sm">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="slip_on_rf">Slip-On RF</SelectItem>
+                                        <SelectItem value="weld_neck">Weld Neck</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="flex gap-2 items-end">
+                                <div className="space-y-1 flex-1">
+                                    <Label className="text-xs">Qty</Label>
+                                    <Input
+                                        type="number"
+                                        min={1}
+                                        value={nozzle.quantity}
+                                        onChange={(e) => {
+                                            const updated = [...inputs.nozzles];
+                                            updated[idx] = { ...updated[idx], quantity: parseInt(e.target.value) || 1 };
+                                            update("nozzles", updated);
+                                        }}
+                                        className="h-9 bg-background text-sm"
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => update("nozzles", inputs.nozzles.filter((_, i) => i !== idx))}
+                                    className="h-9 w-9 flex items-center justify-center rounded-lg border border-destructive/50 text-destructive hover:bg-destructive/10"
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => update("nozzles", [...inputs.nozzles, { type: 'nozzle' as NozzleItemType, standard: 'B16.5' as FlangeStandard, size: '', flangeType: 'weld_neck' as FlangeType, quantity: 1 }])}
+                    >
+                        <PlusIcon className="h-4 w-4 mr-2" /> Add Nozzle / Manhole
+                    </Button>
+                </CardContent>
+            </Card>
+
+            {/* Card — Supports */}
+            <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl hover:border-primary/40 transition-colors duration-200">
+                <CardHeader className="pb-3">
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <Ruler className="h-4 w-4 text-primary" />
+                        {inputs.orientation === "vertical" ? "Leg Supports (4 legs)" : "Saddle Supports (2 saddles)"}
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                    {inputs.orientation === "vertical" ? (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            <div className="space-y-2">
+                                <Label>Leg Pipe OD (mm)</Label>
+                                <Input
+                                    type="number" min={1}
+                                    value={inputs.legInputs.pipeOD || ""}
+                                    onChange={(e) => update("legInputs", { ...inputs.legInputs, pipeOD: parseFloat(e.target.value) || 0 })}
+                                    placeholder="e.g. 168.3"
+                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Leg Pipe Wall Thickness (mm)</Label>
+                                <Input
+                                    type="number" min={1}
+                                    value={inputs.legInputs.pipeThickness || ""}
+                                    onChange={(e) => update("legInputs", { ...inputs.legInputs, pipeThickness: parseFloat(e.target.value) || 0 })}
+                                    placeholder="e.g. 7.11"
+                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Leg Length (mm)</Label>
+                                <Input
+                                    type="number" min={1}
+                                    value={inputs.legInputs.legLength || ""}
+                                    onChange={(e) => update("legInputs", { ...inputs.legInputs, legLength: parseFloat(e.target.value) || 0 })}
+                                    placeholder="e.g. 600"
+                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                                />
+                            </div>
+                            <p className="text-xs text-muted-foreground md:col-span-3">
+                                Base plate auto-sized to 10% larger than pipe OD (square). Base plate thickness: 12 mm.
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            <div className="space-y-2">
+                                <Label>Saddle Contact Angle (°)</Label>
+                                <Input
+                                    type="number" min={90} max={180}
+                                    value={inputs.saddleInputs.angle || ""}
+                                    onChange={(e) => update("saddleInputs", { ...inputs.saddleInputs, angle: parseFloat(e.target.value) || 120 })}
+                                    placeholder="120"
+                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Saddle Width b (mm)</Label>
+                                <Input
+                                    type="number" min={50}
+                                    value={inputs.saddleInputs.width || ""}
+                                    onChange={(e) => update("saddleInputs", { ...inputs.saddleInputs, width: parseFloat(e.target.value) || 0 })}
+                                    placeholder="e.g. 300"
+                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Distance A — Tangent to Saddle (mm)</Label>
+                                <Input
+                                    type="number" min={0}
+                                    value={inputs.saddleInputs.distanceA || ""}
+                                    onChange={(e) => update("saddleInputs", { ...inputs.saddleInputs, distanceA: parseFloat(e.target.value) || 0 })}
+                                    placeholder="e.g. 500"
+                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                                />
+                            </div>
+                            <p className="text-xs text-muted-foreground md:col-span-3">
+                                Zick analysis (L.P. Zick, 1951) — longitudinal bending stresses at saddle and midspan.
+                            </p>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
