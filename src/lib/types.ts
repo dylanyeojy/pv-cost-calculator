@@ -3,6 +3,30 @@ export type SSGrade = 'SS304' | 'SS316' | 'SS316L';
 export type HeadType = 'ellipsoidal' | 'torispherical' | 'hemispherical' | 'flat';
 export type StraightFace = 25 | 38 | 50;
 export type DiameterType = 'ID' | 'OD';
+export type VesselOrientation = 'vertical' | 'horizontal';
+export type FlangeStandard = 'B16.5' | 'PN10' | 'PN16';
+export type FlangeType = 'slip_on_rf' | 'weld_neck';
+export type NozzleItemType = 'nozzle' | 'manhole';
+
+export interface NozzleSpec {
+  type: NozzleItemType;
+  standard: FlangeStandard;
+  size: string;
+  flangeType: FlangeType;
+  quantity: number;
+}
+
+export interface LegInputs {
+  pipeOD: number;
+  pipeThickness: number;
+  legLength: number;
+}
+
+export interface SaddleInputs {
+  angle: number;
+  width: number;
+  distanceA: number;
+}
 
 export interface VesselInputs {
   projectName: string;
@@ -17,6 +41,16 @@ export interface VesselInputs {
   ssGrade: SSGrade;
   rubberLining: boolean;
   quantity: number; // number of identical vessels (default 1)
+  orientation: VesselOrientation;
+  jointEfficiency: number;
+  corrosionAllowance: number;
+  fluidDensity: number;
+  liquidHeight: number;
+  totalDesignPressureOverride: number;
+  filterPlateCount: number;
+  nozzles: NozzleSpec[];
+  legInputs: LegInputs;
+  saddleInputs: SaddleInputs;
 }
 
 export interface PlateSize {
@@ -148,6 +182,69 @@ export interface DishEndResults {
   nestingOptions: NestingOption[];
 }
 
+export interface ASMEThicknessResult {
+  totalDesignPressureMPa: number;
+  liquidHeadMPa: number;
+  allowableStressMPa: number;
+  shellTminMm: number;
+  shellNominalMm: number;
+  shellThinWallWarning: boolean;
+  headTminMm: number;
+  headTformedMm: number;
+  headNominalMm: number;
+}
+
+export interface FilterPlateResult {
+  count: number;
+  diameterMm: number;
+  thicknessMm: number;
+  weightPerPlateKg: number;
+  totalWeightKg: number;
+  totalCost: number;
+}
+
+export interface ManholeFastenerSet {
+  boltCount: number;
+  boltSpec: string;
+  nutCount: number;
+  washerCount: number;
+}
+
+export interface NozzleBOMItem {
+  spec: NozzleSpec;
+  fasteners: ManholeFastenerSet | null;
+}
+
+export interface LegSupportResult {
+  pipeOD: number;
+  pipeThickness: number;
+  legLength: number;
+  basePlateSizeMm: number;
+  weightPerLegKg: number;
+  basePlateWeightKg: number;
+  totalWeightKg: number;
+  totalCost: number;
+}
+
+export interface ZickResult {
+  QN: number;
+  M1Nm: number;
+  M2Nm: number;
+  sigma1MPa: number;
+  sigma2MPa: number;
+  allowableMPa: number;
+  sigma1Pass: boolean;
+  sigma2Pass: boolean;
+  saddleWeightKg: number;
+  totalSaddleCost: number;
+}
+
+export interface SupportResult {
+  type: 'legs' | 'saddles';
+  legs?: LegSupportResult;
+  saddles?: ZickResult;
+}
+
 export interface CalculationResults {
   inputs: VesselInputs;
   od: number;
@@ -158,6 +255,10 @@ export interface CalculationResults {
   grandTotal: number;
   timestamp: number;
   dishEnd?: DishEndResults;
+  asmeThickness?: ASMEThicknessResult;
+  filterPlates?: FilterPlateResult;
+  nozzleBOM?: NozzleBOMItem[];
+  support?: SupportResult;
 }
 
 export interface HistoryEntry {
@@ -192,3 +293,28 @@ export const SS_PLATE_SIZES: PlateSize[] = [
 
 export const CS_DENSITY = 7850; // kg/m³
 export const SS_DENSITY = 8000;
+
+// ─── ASME Section II Part D — Allowable stress tables [tempC, MPa] ───
+export const ALLOWABLE_STRESS_SA516_GR70: [number, number][] = [
+  [20,138],[50,138],[100,138],[150,138],[200,131],[250,125],[300,118],[350,110],[400,100],
+];
+export const ALLOWABLE_STRESS_SS304: [number, number][] = [
+  [20,138],[50,138],[100,127],[150,120],[200,114],[250,110],[300,106],[350,103],[400,99],
+];
+export const ALLOWABLE_STRESS_SS316: [number, number][] = [
+  [20,138],[50,138],[100,127],[150,122],[200,117],[250,113],[300,110],[350,106],[400,103],
+];
+
+// ─── Manhole fastener lookup ───
+export interface ManholeFastenerData {
+  boltCount: number;
+  boltSpec: string;
+  nutCount: number;
+  washerCount: number;
+}
+
+export const MANHOLE_FASTENERS: Record<string, ManholeFastenerData> = {
+  'B16.5_24': { boltCount: 20, boltSpec: '1¼" × 170 mm (ASTM A193 B7)', nutCount: 20, washerCount: 40 },
+  'PN10_DN600': { boltCount: 20, boltSpec: 'M27 × 95 mm (Grade 8.8)', nutCount: 20, washerCount: 40 },
+  'PN16_DN600': { boltCount: 20, boltSpec: 'M33 × 115 mm (Grade 8.8)', nutCount: 20, washerCount: 40 },
+};
