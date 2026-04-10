@@ -6,6 +6,7 @@ import {
   MaterialType, SSGrade, HeadType,
   ALLOWABLE_STRESS_SA516_GR70, ALLOWABLE_STRESS_SS304, ALLOWABLE_STRESS_SS316,
   FilterPlateResult, NozzleSpec, NozzleBOMItem, MANHOLE_FASTENERS,
+  LegInputs, SaddleInputs, LegSupportResult, ZickResult,
 } from './types';
 
 // ─── Geometry helpers ───
@@ -480,6 +481,104 @@ export function calculateNozzleBOM(nozzles: NozzleSpec[]): NozzleBOMItem[] {
       },
     };
   });
+}
+
+// ─── Vertical vessel — pipe leg supports ───
+
+export function calculateLegs(
+  legInputs: LegInputs,
+  materialType: MaterialType,
+  pricePerKg: number,
+): LegSupportResult {
+  const density = materialType === 'carbon_steel' ? CS_DENSITY : SS_DENSITY;
+  const { pipeOD, pipeThickness, legLength } = legInputs;
+  const OD_m = pipeOD / 1000;
+  const ID_m = (pipeOD - 2 * pipeThickness) / 1000;
+  const L_m = legLength / 1000;
+  const crossSectionM2 = Math.PI / 4 * (OD_m * OD_m - ID_m * ID_m);
+  const weightPerLeg = crossSectionM2 * L_m * density;
+
+  const basePlateSizeMm = pipeOD * 1.1;
+  const basePlateThicknessMm = 12;
+  const baseSide_m = basePlateSizeMm / 1000;
+  const basePlateWeight = baseSide_m * baseSide_m * (basePlateThicknessMm / 1000) * density;
+
+  const totalWeight = (weightPerLeg + basePlateWeight) * 4;
+  return {
+    pipeOD,
+    pipeThickness,
+    legLength,
+    basePlateSizeMm,
+    weightPerLegKg: weightPerLeg,
+    basePlateWeightKg: basePlateWeight,
+    totalWeightKg: totalWeight,
+    totalCost: totalWeight * pricePerKg,
+  };
+}
+
+// ─── Horizontal vessel — Zick saddle analysis ───
+
+interface ZickVesselGeometry {
+  L: number;
+  OD: number;
+  t: number;
+  H: number;
+}
+
+export function calculateZickSaddle(
+  vessel: ZickVesselGeometry,
+  saddleInputs: SaddleInputs,
+  totalVesselWeightN: number,
+  S_MPa: number,
+  materialType: MaterialType,
+  pricePerKg: number,
+): ZickResult {
+  const density = materialType === 'carbon_steel' ? CS_DENSITY : SS_DENSITY;
+  const { L, OD, t, H } = vessel;
+  const { width: b, distanceA: A } = saddleInputs;
+
+  const L_m = L / 1000;
+  const H_m = H / 1000;
+  const A_m = A / 1000;
+  const Rm_m = (OD - t) / 2 / 1000;
+  const t_m = t / 1000;
+
+  const Q = totalVesselWeightN / 2;
+
+  const denom = 1 + (4 * H_m) / (3 * L_m);
+
+  const M1_num = 1 - A_m / L_m + (Rm_m * Rm_m - H_m * H_m) / (2 * A_m * L_m);
+  const M1 = Q * A_m * (1 - M1_num / denom);
+
+  const M2_term1 = (1 + 2 * (Rm_m * Rm_m - H_m * H_m) / (L_m * L_m)) / denom;
+  const M2 = (Q * L_m / 4) * (M2_term1 - 4 * A_m / L_m);
+
+  const Z_m3 = Math.PI * Rm_m * Rm_m * t_m;
+
+  const sigma1 = Math.abs(M1) / Z_m3 / 1e6;
+  const sigma2 = Math.abs(M2) / Z_m3 / 1e6;
+
+  const saddleHeightMm = OD * 0.2;
+  const plateTmm = 18;
+  const basePlateArea_m2 = (b / 1000) * ((OD + 200) / 1000);
+  const webPlateArea_m2 = (b / 1000) * (saddleHeightMm / 1000);
+  const ribPlateArea_m2 = (150 / 1000) * (saddleHeightMm / 1000);
+  const plateTm = plateTmm / 1000;
+  const saddleWeight1 = (basePlateArea_m2 + webPlateArea_m2 + 6 * ribPlateArea_m2) * plateTm * density;
+  const totalSaddleWeight = saddleWeight1 * 2;
+
+  return {
+    QN: Q,
+    M1Nm: M1,
+    M2Nm: M2,
+    sigma1MPa: sigma1,
+    sigma2MPa: sigma2,
+    allowableMPa: S_MPa,
+    sigma1Pass: sigma1 <= S_MPa,
+    sigma2Pass: sigma2 <= S_MPa,
+    saddleWeightKg: totalSaddleWeight,
+    totalSaddleCost: totalSaddleWeight * pricePerKg,
+  };
 }
 
 export function formatCurrency(value: number): string {

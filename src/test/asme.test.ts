@@ -6,8 +6,10 @@ import {
   calculateUG32Head,
   calculateFilterPlates,
   calculateNozzleBOM,
+  calculateLegs,
+  calculateZickSaddle,
 } from '@/lib/calculations';
-import { NozzleSpec } from '@/lib/types';
+import { NozzleSpec, LegInputs, SaddleInputs } from '@/lib/types';
 
 describe('getASMEAllowableStress', () => {
   it('returns 138 MPa for SA-516 Gr.70 at 20°C', () => {
@@ -165,5 +167,47 @@ describe('calculateNozzleBOM', () => {
     }];
     const bom = calculateNozzleBOM(nozzles);
     expect(bom[0].fasteners).toBeNull();
+  });
+});
+
+describe('calculateLegs', () => {
+  it('calculates 4 CS legs: OD=168.3mm, t=7.11mm, L=600mm', () => {
+    // Pipe cross-section: π/4 × (OD² - ID²) where ID = 168.3 - 2×7.11 = 154.08mm
+    // area = π/4 × ((0.1683)² - (0.15408)²) = π/4 × (0.028305 - 0.023741) = π/4 × 0.004564 = 0.003591 m²
+    // volume per leg = 0.003591 × 0.6 = 0.002155 m³
+    // weight per leg = 0.002155 × 7850 = 16.91 kg
+    const legInputs: LegInputs = { pipeOD: 168.3, pipeThickness: 7.11, legLength: 600 };
+    const result = calculateLegs(legInputs, 'carbon_steel', 4.50);
+    expect(result.weightPerLegKg).toBeCloseTo(16.9, 0);
+    expect(result.basePlateSizeMm).toBeCloseTo(168.3 * 1.1, 1);  // 185.1mm
+    // base plate: 185.1mm × 185.1mm × 12mm (default), density 7850
+    // weight = (0.1851)² × 0.012 × 7850 ≈ 3.23 kg
+    expect(result.basePlateWeightKg).toBeCloseTo(3.23, 0);
+    expect(result.totalWeightKg).toBeCloseTo((result.weightPerLegKg + result.basePlateWeightKg) * 4, 0);
+  });
+});
+
+describe('calculateZickSaddle', () => {
+  it('computes M1, M2 for a simple test case and passes stress checks', () => {
+    // Vessel: L=10000mm, OD=1219mm, t=8mm, H(head depth)=250mm
+    // W=50000N, A=1000mm, saddle width b=300mm
+    const saddleInputs: SaddleInputs = { angle: 120, width: 300, distanceA: 1000 };
+    const result = calculateZickSaddle(
+      { L: 10000, OD: 1219, t: 8, H: 250 },
+      saddleInputs,
+      50000,
+      138,
+      'carbon_steel',
+      4.50,
+    );
+    expect(result.QN).toBe(25000);
+    expect(result.M1Nm).toBeGreaterThan(0);
+    expect(result.M2Nm).toBeGreaterThan(0);
+    expect(result.sigma1MPa).toBeLessThan(138);
+    expect(result.sigma2MPa).toBeLessThan(138);
+    expect(result.sigma1Pass).toBe(true);
+    expect(result.sigma2Pass).toBe(true);
+    expect(result.saddleWeightKg).toBeGreaterThan(0);
+    expect(result.totalSaddleCost).toBeGreaterThan(0);
   });
 });
