@@ -5,6 +5,7 @@ import {
   ShellOption, CourseDetail, CalculationResults,
   MaterialType, SSGrade, HeadType,
   ALLOWABLE_STRESS_SA516_GR70, ALLOWABLE_STRESS_SS304, ALLOWABLE_STRESS_SS316,
+  FilterPlateResult, NozzleSpec, NozzleBOMItem, MANHOLE_FASTENERS,
 } from './types';
 
 // ─── Geometry helpers ───
@@ -424,6 +425,61 @@ export function calculateUG32Head(
   const tRequired = tFormed + CA_mm;
   const nominal = getNextNominalThickness(tRequired, materialType);
   return { tMinMm: tMin, tFormedMm: tFormed, nominalMm: nominal };
+}
+
+// ─── Filter plates ───
+
+export function calculateFilterPlates(
+  count: number,
+  idMm: number,
+  materialType: MaterialType,
+  pricePerKg: number,
+): FilterPlateResult {
+  if (count === 0) {
+    return { count: 0, diameterMm: idMm, thicknessMm: 0, weightPerPlateKg: 0, totalWeightKg: 0, totalCost: 0 };
+  }
+  const thicknessMm = materialType === 'carbon_steel' ? 22.3 : 22;
+  const density = materialType === 'carbon_steel' ? CS_DENSITY : SS_DENSITY;
+  const radiusM = (idMm / 1000) / 2;
+  const areaM2 = Math.PI * radiusM * radiusM;
+  const weightPerPlate = areaM2 * (thicknessMm / 1000) * density;
+  const totalWeight = weightPerPlate * count;
+  return {
+    count,
+    diameterMm: idMm,
+    thicknessMm,
+    weightPerPlateKg: weightPerPlate,
+    totalWeightKg: totalWeight,
+    totalCost: totalWeight * 2 * pricePerKg,
+  };
+}
+
+// ─── Nozzle / Manhole BOM ───
+
+export function calculateNozzleBOM(nozzles: NozzleSpec[]): NozzleBOMItem[] {
+  return nozzles.map(spec => {
+    if (spec.type !== 'manhole') {
+      return { spec, fasteners: null };
+    }
+    let key: string;
+    if (spec.standard === 'B16.5') {
+      key = 'B16.5_24';
+    } else if (spec.standard === 'PN10') {
+      key = 'PN10_DN600';
+    } else {
+      key = 'PN16_DN600';
+    }
+    const base = MANHOLE_FASTENERS[key];
+    return {
+      spec,
+      fasteners: {
+        boltCount: base.boltCount * spec.quantity,
+        boltSpec: base.boltSpec,
+        nutCount: base.nutCount * spec.quantity,
+        washerCount: base.washerCount * spec.quantity,
+      },
+    };
+  });
 }
 
 export function formatCurrency(value: number): string {

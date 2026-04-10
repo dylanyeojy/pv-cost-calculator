@@ -4,7 +4,10 @@ import {
   calculateLiquidHead,
   calculateUG27Shell,
   calculateUG32Head,
+  calculateFilterPlates,
+  calculateNozzleBOM,
 } from '@/lib/calculations';
+import { NozzleSpec } from '@/lib/types';
 
 describe('getASMEAllowableStress', () => {
   it('returns 138 MPa for SA-516 Gr.70 at 20°C', () => {
@@ -103,5 +106,64 @@ describe('calculateUG32Head', () => {
     const result = calculateUG32Head(1.0, 1000, 'hemispherical', 138, 1.0, 3, 'carbon_steel');
     expect(result.tMinMm).toBeCloseTo(1.813, 2);
     expect(result.nominalMm).toBe(6.40);
+  });
+});
+
+describe('calculateFilterPlates', () => {
+  it('calculates weight and cost for 2 CS filter plates, ID=1000mm', () => {
+    // Area = π × (0.5)² = 0.7854 m²
+    // Weight per plate = 0.7854 × (22.3/1000) × 7850 = 137.4 kg
+    const result = calculateFilterPlates(2, 1000, 'carbon_steel', 4.50);
+    expect(result.count).toBe(2);
+    expect(result.diameterMm).toBe(1000);
+    expect(result.thicknessMm).toBe(22.3);
+    expect(result.weightPerPlateKg).toBeCloseTo(137.4, 0);
+    expect(result.totalWeightKg).toBeCloseTo(274.8, 0);
+    expect(result.totalCost).toBeCloseTo(274.8 * 2 * 4.50, -1);
+  });
+
+  it('uses 22mm thickness for stainless steel', () => {
+    const result = calculateFilterPlates(1, 800, 'stainless_steel', 12.00);
+    expect(result.thicknessMm).toBe(22);
+  });
+
+  it('returns zero-cost result for count=0', () => {
+    const result = calculateFilterPlates(0, 1000, 'carbon_steel', 4.50);
+    expect(result.totalWeightKg).toBe(0);
+    expect(result.totalCost).toBe(0);
+  });
+});
+
+describe('calculateNozzleBOM', () => {
+  it('returns fastener set for 1× B16.5 24" manhole', () => {
+    const nozzles: NozzleSpec[] = [{
+      type: 'manhole', standard: 'B16.5', size: '24"',
+      flangeType: 'slip_on_rf', quantity: 1,
+    }];
+    const bom = calculateNozzleBOM(nozzles);
+    expect(bom).toHaveLength(1);
+    expect(bom[0].fasteners).not.toBeNull();
+    expect(bom[0].fasteners!.boltCount).toBe(20);
+    expect(bom[0].fasteners!.nutCount).toBe(20);
+    expect(bom[0].fasteners!.washerCount).toBe(40);
+  });
+
+  it('multiplies fastener set by quantity for 2× manholes', () => {
+    const nozzles: NozzleSpec[] = [{
+      type: 'manhole', standard: 'PN16', size: 'DN600',
+      flangeType: 'weld_neck', quantity: 2,
+    }];
+    const bom = calculateNozzleBOM(nozzles);
+    expect(bom[0].fasteners!.boltCount).toBe(40);   // 20 × 2
+    expect(bom[0].fasteners!.washerCount).toBe(80);  // 40 × 2
+  });
+
+  it('returns null fasteners for a plain nozzle', () => {
+    const nozzles: NozzleSpec[] = [{
+      type: 'nozzle', standard: 'B16.5', size: 'NPS 4',
+      flangeType: 'weld_neck', quantity: 3,
+    }];
+    const bom = calculateNozzleBOM(nozzles);
+    expect(bom[0].fasteners).toBeNull();
   });
 });
