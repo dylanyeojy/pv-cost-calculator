@@ -4,6 +4,7 @@ import { useAppContext } from '@/lib/context';
 import { formatCurrency, formatNumber } from '@/lib/calculations';
 import { HEAD_TYPE_LABELS } from '@/lib/dishEndCalculations';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertTriangle, Printer, Plus, Trophy, Check, FileText } from 'lucide-react';
 import { ShellOption, NestingOption } from '@/lib/types';
 import NumberFlow from '@number-flow/react';
@@ -792,6 +793,211 @@ export default function Results() {
         )}
       </div>
 
+      {/* ASME Thickness Results */}
+      {results.asmeThickness && (
+        <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold">ASME Section VIII Div.1 — Required Thickness</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm mb-4">
+              <div>
+                <p className="text-muted-foreground text-xs">Total Design Pressure</p>
+                <p className="font-semibold">{(results.asmeThickness.totalDesignPressureMPa * 1000).toFixed(1)} kPa</p>
+                {results.asmeThickness.liquidHeadMPa > 0 && (
+                  <p className="text-xs text-muted-foreground">incl. {(results.asmeThickness.liquidHeadMPa * 1000).toFixed(1)} kPa liquid head</p>
+                )}
+              </div>
+              <div>
+                <p className="text-muted-foreground text-xs">Allowable Stress (S)</p>
+                <p className="font-semibold">{results.asmeThickness.allowableStressMPa.toFixed(1)} MPa</p>
+              </div>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs text-muted-foreground">
+                  <th className="text-left pb-2">Component</th>
+                  <th className="text-right pb-2">t_min (mm)</th>
+                  <th className="text-right pb-2">t_formed (mm)</th>
+                  <th className="text-right pb-2">Recommended Nominal</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-border/50">
+                  <td className="py-2">Shell (UG-27)</td>
+                  <td className="text-right">{results.asmeThickness.shellTminMm.toFixed(2)}</td>
+                  <td className="text-right text-muted-foreground">—</td>
+                  <td className="text-right font-semibold text-primary">{results.asmeThickness.shellNominalMm} mm</td>
+                </tr>
+                <tr>
+                  <td className="py-2">Head (UG-32)</td>
+                  <td className="text-right">{results.asmeThickness.headTminMm.toFixed(2)}</td>
+                  <td className="text-right">{results.asmeThickness.headTformedMm.toFixed(2)}</td>
+                  <td className="text-right font-semibold text-primary">{results.asmeThickness.headNominalMm} mm</td>
+                </tr>
+              </tbody>
+            </table>
+            {results.asmeThickness.shellThinWallWarning && (
+              <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
+                ⚠ Thick-wall condition detected (t ≥ R/2). Manual engineering review required.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filter Plates */}
+      {results.filterPlates && results.filterPlates.count > 0 && (
+        <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold">Filter Plates</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs text-muted-foreground">
+                  <th className="text-left pb-2">Qty</th>
+                  <th className="text-right pb-2">Diameter</th>
+                  <th className="text-right pb-2">Thickness</th>
+                  <th className="text-right pb-2">Weight each</th>
+                  <th className="text-right pb-2">Total weight</th>
+                  <th className="text-right pb-2">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="py-2">{results.filterPlates.count}</td>
+                  <td className="text-right">{results.filterPlates.diameterMm} mm</td>
+                  <td className="text-right">{results.filterPlates.thicknessMm} mm</td>
+                  <td className="text-right">{results.filterPlates.weightPerPlateKg.toFixed(1)} kg</td>
+                  <td className="text-right">{results.filterPlates.totalWeightKg.toFixed(1)} kg</td>
+                  <td className="text-right font-semibold">{formatCurrency(results.filterPlates.totalCost)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Nozzle / Manhole BOM */}
+      {results.nozzleBOM && results.nozzleBOM.length > 0 && (
+        <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold">Nozzles & Manholes — Bill of Materials</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-3">
+              Fastener quantities shown are per blind flange (manholes only). Nozzle reinforcement per UG-37 not included.
+            </p>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs text-muted-foreground">
+                  <th className="text-left pb-2">Type</th>
+                  <th className="text-left pb-2">Standard / Size</th>
+                  <th className="text-left pb-2">Face</th>
+                  <th className="text-right pb-2">Qty</th>
+                  <th className="text-left pb-2">Bolts</th>
+                  <th className="text-right pb-2">Nuts</th>
+                  <th className="text-right pb-2">Washers</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.nozzleBOM.map((item, idx) => (
+                  <tr key={idx} className="border-b border-border/50">
+                    <td className="py-2 capitalize">{item.spec.type}</td>
+                    <td>{item.spec.standard} {item.spec.size}</td>
+                    <td className="text-xs">{item.spec.flangeType === 'slip_on_rf' ? 'SO-RF' : 'WN'}</td>
+                    <td className="text-right">{item.spec.quantity}</td>
+                    {item.fasteners ? (
+                      <>
+                        <td className="text-xs">{item.fasteners.boltCount}× {item.fasteners.boltSpec}</td>
+                        <td className="text-right">{item.fasteners.nutCount}</td>
+                        <td className="text-right">{item.fasteners.washerCount}</td>
+                      </>
+                    ) : (
+                      <td className="text-xs text-muted-foreground" colSpan={3}>— (nozzle, no blind flange)</td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Support Results */}
+      {results.support && (
+        <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold">
+              {results.support.type === 'legs' ? 'Leg Supports (4 × pipe legs)' : 'Saddle Supports — Zick Analysis'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {results.support.type === 'legs' && results.support.legs && (() => {
+              const l = results.support.legs;
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                  <div><p className="text-xs text-muted-foreground">Pipe OD</p><p className="font-semibold">{l.pipeOD} mm</p></div>
+                  <div><p className="text-xs text-muted-foreground">Wall Thickness</p><p className="font-semibold">{l.pipeThickness} mm</p></div>
+                  <div><p className="text-xs text-muted-foreground">Leg Length</p><p className="font-semibold">{l.legLength} mm</p></div>
+                  <div><p className="text-xs text-muted-foreground">Base Plate (square)</p><p className="font-semibold">{l.basePlateSizeMm.toFixed(0)} × {l.basePlateSizeMm.toFixed(0)} mm</p></div>
+                  <div><p className="text-xs text-muted-foreground">Weight per leg</p><p className="font-semibold">{l.weightPerLegKg.toFixed(1)} kg</p></div>
+                  <div><p className="text-xs text-muted-foreground">Total (4 legs + plates)</p><p className="font-semibold">{l.totalWeightKg.toFixed(1)} kg</p></div>
+                  <div className="md:col-span-3 pt-2 border-t border-border/50">
+                    <p className="text-xs text-muted-foreground">Support Material Cost</p>
+                    <p className="font-semibold text-primary">{formatCurrency(l.totalCost)}</p>
+                  </div>
+                </div>
+              );
+            })()}
+            {results.support.type === 'saddles' && results.support.saddles && (() => {
+              const z = results.support.saddles;
+              return (
+                <div className="space-y-4">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-xs text-muted-foreground">
+                        <th className="text-left pb-2">Stress check</th>
+                        <th className="text-right pb-2">Value (MPa)</th>
+                        <th className="text-right pb-2">Allowable (MPa)</th>
+                        <th className="text-right pb-2">Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-border/50">
+                        <td className="py-2">Longitudinal bending at saddle (σ1)</td>
+                        <td className="text-right">{z.sigma1MPa.toFixed(2)}</td>
+                        <td className="text-right">{z.allowableMPa.toFixed(1)}</td>
+                        <td className={`text-right font-semibold ${z.sigma1Pass ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {z.sigma1Pass ? 'PASS' : 'FAIL'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-2">Longitudinal bending at midspan (σ2)</td>
+                        <td className="text-right">{z.sigma2MPa.toFixed(2)}</td>
+                        <td className="text-right">{z.allowableMPa.toFixed(1)}</td>
+                        <td className={`text-right font-semibold ${z.sigma2Pass ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {z.sigma2Pass ? 'PASS' : 'FAIL'}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div><p className="text-xs text-muted-foreground">Load per saddle (Q)</p><p className="font-semibold">{(z.QN / 1000).toFixed(1)} kN</p></div>
+                    <div><p className="text-xs text-muted-foreground">Saddle steel weight (×2)</p><p className="font-semibold">{z.saddleWeightKg.toFixed(1)} kg</p></div>
+                  </div>
+                  <div className="pt-2 border-t border-border/50">
+                    <p className="text-xs text-muted-foreground">Saddle Material Cost</p>
+                    <p className="font-semibold text-primary">{formatCurrency(z.totalSaddleCost)}</p>
+                  </div>
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Shell Plate Options */}
       <div>
         <h2 className="text-base font-bold mb-4">Shell Plate Options</h2>
@@ -851,6 +1057,13 @@ export default function Results() {
       {/* Tip */}
       <div className="rounded-xl bg-accent/30 border border-accent/50 p-4 text-sm text-muted-foreground">
         <strong>Tip:</strong> More plates = more weld seams = higher welding cost. Balance wastage % vs plate count when choosing.
+      </div>
+
+      {/* Disclaimer */}
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-xs text-amber-700 dark:text-amber-400">
+        <strong>Estimation only.</strong> ASME thickness calculations and support estimates are for fabrication costing
+        purposes only. Nozzle reinforcement (UG-37), external pressure (UG-28), and seismic/wind loads are not
+        calculated. Results are not a substitute for a code-certified engineering design.
       </div>
 
       </div>{/* end LEFT COLUMN */}
