@@ -202,20 +202,23 @@ export function optimizeShell(
     if (lengthOptions.some(opts => opts.length === 0)) continue;
 
     for (const courseLengths of cartesian(lengthOptions)) {
-      const nAroundOptionsList = courseWidths.map((w, i) =>
-        getAllCourseOptions(w, courseLengths[i], circumference, quantity).map(o => o.nAround),
-      );
-      if (nAroundOptionsList.some(opts => opts.length === 0)) continue;
+      // Pick the nAround that minimises bought area per course independently.
+      // nAround values are independent across courses (they don't interact), so
+      // greedy per-course selection is optimal and avoids the 4^N cartesian explosion.
+      const nAroundCombo = courseWidths.map((w, i) => {
+        const opts = getAllCourseOptions(w, courseLengths[i], circumference, quantity);
+        if (opts.length === 0) return 0;
+        return opts.reduce((best, o) => o.boughtMm2 < best.boughtMm2 ? o : best).nAround;
+      });
+      if (nAroundCombo.some(n => n === 0)) continue;
 
-      for (const nAroundCombo of cartesian(nAroundOptionsList)) {
-        const result = evaluateShell(courseWidths, courseLengths, nAroundCombo, od, shellLength, quantity);
+      const result = evaluateShell(courseWidths, courseLengths, nAroundCombo, od, shellLength, quantity);
 
-        const key = `${result.totalStandardPlates}|${result.totalWeldLength.toFixed(1)}|${nAroundCombo.join(',')}|${result.numCourses}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+      const key = `${result.totalStandardPlates}|${result.totalWeldLength.toFixed(1)}|${nAroundCombo.join(',')}|${result.numCourses}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
 
-        allResults.push(result);
-      }
+      allResults.push(result);
     }
   }
 
