@@ -10,8 +10,9 @@ import { Save, RotateCcw, Pencil, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 
 const PRICING_KEYS: { key: keyof PricingData; description: string; unit: string; helper?: string }[] = [
-  { key: 'cs_plate_per_kg', description: 'Carbon Steel Plate', unit: 'RM/kg' },
-  { key: 'ss_plate_per_kg', description: 'Stainless Steel Plate', unit: 'RM/kg' },
+  { key: 'cs_plate_per_kg', description: 'Carbon Steel Plate (SA516 Gr 70)', unit: 'RM/kg' },
+  { key: 'ss_plate_per_kg', description: 'Stainless Steel Plate (SS304 / SS316)', unit: 'RM/kg' },
+  { key: 'sa106_per_kg', description: 'SA106 Gr. B', unit: 'RM/kg', helper: 'Nozzle necks, leg supports, saddles, base plates' },
   { key: 'fcaw_per_metre', description: 'FCAW Welding', unit: 'RM/m' },
   { key: 'jotun_barrier80_per_litre', description: 'Jotun Barrier 80', unit: 'RM/litre' },
   { key: 'jotun_penguard_per_litre', description: 'Jotun Penguard Express', unit: 'RM/litre' },
