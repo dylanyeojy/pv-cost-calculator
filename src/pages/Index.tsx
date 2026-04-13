@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "@/lib/context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,8 +23,10 @@ import {
     FlangeStandard,
     FlangeType,
     NozzleItemType,
+    SA106_PIPE_SCHEDULE,
 } from "@/lib/types";
 import { suggestedSF, HEAD_TYPE_LABELS } from "@/lib/dishEndCalculations";
+import { liveASMEPreview, LiveASMEPreviewResult } from "@/lib/calculations";
 import {
     Calculator,
     Ruler,
@@ -84,6 +86,57 @@ export default function Index() {
 
     const [editingVesselQty, setEditingVesselQty] = useState(false);
     const [editingDishQty, setEditingDishQty] = useState(false);
+
+    const [asmePreview, setAsmePreview] = useState<LiveASMEPreviewResult>({
+        allowableStressMPa: null,
+        shellTminMm: null,
+        headTminMm: null,
+        recommendedShellNominalMm: null,
+        recommendedHeadNominalMm: null,
+    });
+    const [isShellThicknessOverridden, setIsShellThicknessOverridden] = useState(false);
+    const [isDishEndThicknessOverridden, setIsDishEndThicknessOverridden] = useState(false);
+    const [isDishEndQtyOverridden, setIsDishEndQtyOverridden] = useState(false);
+    const asmeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        if (asmeDebounceRef.current) clearTimeout(asmeDebounceRef.current);
+        asmeDebounceRef.current = setTimeout(() => {
+            const liquidHeadKPa = inputs.orientation === "vertical"
+                ? (1000 * 9.81 * (inputs.shellLength / 1000)) / 1000
+                : 0;
+            const result = liveASMEPreview({
+                materialType: inputs.materialType,
+                designPressureKPa: inputs.designPressure,
+                liquidHeadKPa,
+                designTempC: inputs.designTemperature,
+                jointEfficiency: inputs.jointEfficiency,
+                corrosionAllowanceMm: inputs.corrosionAllowance,
+                diameterMm: inputs.diameter,
+                diameterType: inputs.diameterType,
+                headType: dishEndInputs.headType,
+            });
+            setAsmePreview(result);
+            if (!isShellThicknessOverridden && result.recommendedShellNominalMm !== null) {
+                update("plateThickness", result.recommendedShellNominalMm);
+            }
+            if (!isDishEndThicknessOverridden && result.recommendedHeadNominalMm !== null) {
+                updateDish("plateThickness", result.recommendedHeadNominalMm);
+            }
+        }, 300);
+        return () => { if (asmeDebounceRef.current) clearTimeout(asmeDebounceRef.current); };
+    }, [
+        inputs.materialType, inputs.designPressure, inputs.designTemperature,
+        inputs.jointEfficiency, inputs.corrosionAllowance, inputs.diameter,
+        inputs.diameterType, inputs.orientation, inputs.shellLength,
+        dishEndInputs.headType,
+    ]);
+
+    useEffect(() => {
+        if (!isDishEndQtyOverridden) {
+            updateDish("quantity", (inputs.quantity ?? 1) * 2);
+        }
+    }, [inputs.quantity]);
 
     const isValid =
         inputs.projectName &&
@@ -150,25 +203,48 @@ export default function Index() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-5">
-                    <div className="space-y-2">
-                        <Label>Vessel Orientation</Label>
-                        <Select
-                            value={inputs.orientation}
-                            onValueChange={(v) => update("orientation", v as VesselOrientation)}
-                        >
-                            <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="vertical">Vertical (standing upright)</SelectItem>
-                                <SelectItem value="horizontal">Horizontal (saddle-supported)</SelectItem>
-                            </SelectContent>
-                        </Select>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div className="space-y-2">
+                            <Label>Material Type</Label>
+                            <Select
+                                value={inputs.materialType}
+                                onValueChange={(v) => {
+                                    update("materialType", v);
+                                    update("filterPlateThickness", v === "SA516 Gr 70" ? 22.30 : 22.00);
+                                    setIsShellThicknessOverridden(false);
+                                    setIsDishEndThicknessOverridden(false);
+                                }}
+                            >
+                                <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="SA516 Gr 70">SA516 Gr 70</SelectItem>
+                                    <SelectItem value="SS304">SS304</SelectItem>
+                                    <SelectItem value="SS316">SS316</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Vessel Orientation</Label>
+                            <Select
+                                value={inputs.orientation}
+                                onValueChange={(v) => update("orientation", v as VesselOrientation)}
+                            >
+                                <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="vertical">Vertical</SelectItem>
+                                    <SelectItem value="horizontal">Horizontal</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="space-y-2">
-                            <Label>Design Pressure (kPa)</Label>
+                            <Label>Internal Design Pressure (kPa)</Label>
                             <Input
                                 type="number"
                                 min={0}
@@ -220,22 +296,54 @@ export default function Index() {
                         </div>
                     </div>
 
-                    {inputs.orientation === "vertical" && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                            <div className="space-y-2 md:col-span-2">
-                                <Label>Total Design Pressure Override (kPa)</Label>
-                                <Input
-                                    type="number"
-                                    min={0}
-                                    value={inputs.totalDesignPressureOverride || ""}
-                                    onChange={(e) => update("totalDesignPressureOverride", parseFloat(e.target.value) || 0)}
-                                    placeholder="0 = auto (top pressure + liquid head)"
-                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
-                                />
-                                <p className="text-xs text-muted-foreground">Leave 0 to auto-calculate. Enter a value to override.</p>
-                            </div>
+                    <div className="space-y-2">
+                        <Label>Total Design Pressure Override (kPa)</Label>
+                        <Input
+                            type="number"
+                            min={0}
+                            value={inputs.totalDesignPressureOverride || ""}
+                            onChange={(e) => update("totalDesignPressureOverride", parseFloat(e.target.value) || 0)}
+                            placeholder="Leave blank for auto-calculation"
+                            className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
+                        />
+                        <p className="text-xs text-muted-foreground">Auto: internal pressure + liquid head (vertical only). Enter a value to override.</p>
+                    </div>
+
+                    {/* Live ASME thickness derivation */}
+                    <div className="rounded-lg bg-secondary/40 border border-border/60 px-4 py-3 space-y-1.5 font-mono text-sm">
+                        <div className="flex justify-between">
+                            <span className="text-muted-foreground">Allowable stress (S)</span>
+                            <span className="font-medium">
+                                {asmePreview.allowableStressMPa !== null
+                                    ? `${asmePreview.allowableStressMPa.toFixed(1)} MPa`
+                                    : "—"}
+                            </span>
                         </div>
-                    )}
+                        <div className="flex justify-between">
+                            <span className="text-muted-foreground">Shell t_min (UG-27)</span>
+                            <span className="font-medium">
+                                {asmePreview.shellTminMm !== null
+                                    ? `${asmePreview.shellTminMm.toFixed(2)} mm → nominal ${asmePreview.recommendedShellNominalMm?.toFixed(2)} mm`
+                                    : "—"}
+                            </span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-muted-foreground">Head t_min (UG-32)</span>
+                            <span className="font-medium">
+                                {asmePreview.headTminMm !== null
+                                    ? `${asmePreview.headTminMm.toFixed(2)} mm → nominal ${asmePreview.recommendedHeadNominalMm?.toFixed(2)} mm`
+                                    : "—"}
+                            </span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-muted-foreground">Corrosion allowance</span>
+                            <span className="font-medium">
+                                {inputs.corrosionAllowance > 0
+                                    ? `${inputs.corrosionAllowance.toFixed(1)} mm (included in t_min above)`
+                                    : "—"}
+                            </span>
+                        </div>
+                    </div>
                 </CardContent>
             </Card>
 
@@ -250,47 +358,20 @@ export default function Index() {
                 <CardContent className="space-y-5">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="space-y-2">
-                            <Label>Material Type</Label>
-                            <Select
-                                value={inputs.materialType}
-                                onValueChange={(v) => {
-                                    update("materialType", v);
-                                    if (v === "SA516 Gr 70") {
-                                        update(
-                                            "plateThickness",
-                                            CS_THICKNESSES[0],
-                                        );
-                                    } else {
-                                        update(
-                                            "plateThickness",
-                                            SS_THICKNESSES[0],
-                                        );
-                                    }
-                                }}
-                            >
-                                <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="SA516 Gr 70">
-                                        SA516 Gr 70
-                                    </SelectItem>
-                                    <SelectItem value="SS304">
-                                        SS304
-                                    </SelectItem>
-                                    <SelectItem value="SS316">
-                                        SS316
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Plate Thickness (mm)</Label>
+                            <div className="flex items-center justify-between">
+                                <Label>Plate Thickness (mm)</Label>
+                                {isShellThicknessOverridden && asmePreview.recommendedShellNominalMm !== null && (
+                                    <span className="text-xs text-muted-foreground">
+                                        Auto: {asmePreview.recommendedShellNominalMm.toFixed(2)} mm
+                                    </span>
+                                )}
+                            </div>
                             <Select
                                 value={String(inputs.plateThickness)}
-                                onValueChange={(v) =>
-                                    update("plateThickness", Number(v))
-                                }
+                                onValueChange={(v) => {
+                                    update("plateThickness", Number(v));
+                                    setIsShellThicknessOverridden(true);
+                                }}
                             >
                                 <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
                                     <div className="flex items-center gap-1">
@@ -503,12 +584,20 @@ export default function Index() {
                     {/* Row 1: Plate Thickness */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="space-y-2">
-                            <Label>Plate Thickness (mm)</Label>
+                            <div className="flex items-center justify-between">
+                                <Label>Plate Thickness (mm)</Label>
+                                {isDishEndThicknessOverridden && asmePreview.recommendedHeadNominalMm !== null && (
+                                    <span className="text-xs text-muted-foreground">
+                                        Auto: {asmePreview.recommendedHeadNominalMm.toFixed(2)} mm
+                                    </span>
+                                )}
+                            </div>
                             <Select
                                 value={String(dishEndInputs.plateThickness)}
-                                onValueChange={(v) =>
-                                    updateDish("plateThickness", Number(v))
-                                }
+                                onValueChange={(v) => {
+                                    updateDish("plateThickness", Number(v));
+                                    setIsDishEndThicknessOverridden(true);
+                                }}
                             >
                                 <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
                                     <div className="flex items-center gap-1">
@@ -622,21 +711,23 @@ export default function Index() {
                     {/* Row 3: Quantity + Corner Radius (flat only) */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="space-y-2">
-                            <Label>Quantity</Label>
+                            <div className="flex items-center justify-between">
+                                <Label>Quantity</Label>
+                                {isDishEndQtyOverridden && (
+                                    <span className="text-xs text-muted-foreground">
+                                        Auto: {(inputs.quantity ?? 1) * 2}
+                                    </span>
+                                )}
+                            </div>
                             <div className="flex items-center gap-2">
                                 <Button
                                     variant="outline"
                                     size="icon"
                                     className="h-11 w-11 shrink-0"
-                                    onClick={() =>
-                                        updateDish(
-                                            "quantity",
-                                            Math.max(
-                                                0,
-                                                dishEndInputs.quantity - 1,
-                                            ),
-                                        )
-                                    }
+                                    onClick={() => {
+                                        updateDish("quantity", Math.max(0, dishEndInputs.quantity - 1));
+                                        setIsDishEndQtyOverridden(true);
+                                    }}
                                 >
                                     <Minus className="h-3.5 w-3.5" />
                                 </Button>
@@ -647,33 +738,18 @@ export default function Index() {
                                         autoFocus
                                         defaultValue={dishEndInputs.quantity}
                                         onBlur={(e) => {
-                                            const v = Math.max(
-                                                0,
-                                                parseInt(e.target.value) || 0,
-                                            );
+                                            const v = Math.max(0, parseInt(e.target.value) || 0);
                                             updateDish("quantity", v);
+                                            setIsDishEndQtyOverridden(true);
                                             setEditingDishQty(false);
                                         }}
                                         onKeyDown={(e) => {
-                                            if (
-                                                e.key === "-" ||
-                                                e.key === "." ||
-                                                e.key === "e"
-                                            )
+                                            if (e.key === "-" || e.key === "." || e.key === "e")
                                                 e.preventDefault();
-                                            if (
-                                                e.key === "Enter" ||
-                                                e.key === "Escape"
-                                            ) {
-                                                const v = Math.max(
-                                                    0,
-                                                    parseInt(
-                                                        (
-                                                            e.target as HTMLInputElement
-                                                        ).value,
-                                                    ) || 0,
-                                                );
+                                            if (e.key === "Enter" || e.key === "Escape") {
+                                                const v = Math.max(0, parseInt((e.target as HTMLInputElement).value) || 0);
                                                 updateDish("quantity", v);
+                                                setIsDishEndQtyOverridden(true);
                                                 setEditingDishQty(false);
                                             }
                                         }}
@@ -694,18 +770,16 @@ export default function Index() {
                                     variant="outline"
                                     size="icon"
                                     className="h-11 w-11 shrink-0"
-                                    onClick={() =>
-                                        updateDish(
-                                            "quantity",
-                                            dishEndInputs.quantity + 1,
-                                        )
-                                    }
+                                    onClick={() => {
+                                        updateDish("quantity", dishEndInputs.quantity + 1);
+                                        setIsDishEndQtyOverridden(true);
+                                    }}
                                 >
                                     <PlusIcon className="h-3.5 w-3.5" />
                                 </Button>
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                Total dish ends across all vessels
+                                Defaults to 2 × vessel quantity
                             </p>
                         </div>
                         {dishEndInputs.headType === "flat" && (
@@ -738,27 +812,61 @@ export default function Index() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-5">
-                    <div className="space-y-2">
-                        <Label>Number of Filter Plates</Label>
-                        <p className="text-xs text-muted-foreground">
-                            Circular plates at vessel ID. CS: 22.3 mm thick · SS: 22 mm thick
-                        </p>
-                        <div className="flex items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={() => update("filterPlateCount", Math.max(0, inputs.filterPlateCount - 1))}
-                                className="h-9 w-9 rounded-lg border border-input flex items-center justify-center hover:bg-secondary"
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div className="space-y-2">
+                            <Label>Number of Filter Plates</Label>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-11 w-11 shrink-0"
+                                    onClick={() => update("filterPlateCount", Math.max(0, inputs.filterPlateCount - 1))}
+                                >
+                                    <Minus className="h-3.5 w-3.5" />
+                                </Button>
+                                <div className="w-16 flex items-center justify-center rounded-md border border-input bg-secondary/50 h-11">
+                                    <NumberFlow
+                                        value={inputs.filterPlateCount}
+                                        className="font-mono font-medium text-sm tabular-nums"
+                                    />
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-11 w-11 shrink-0"
+                                    onClick={() => update("filterPlateCount", inputs.filterPlateCount + 1)}
+                                >
+                                    <PlusIcon className="h-3.5 w-3.5" />
+                                </Button>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Plate Thickness (mm)</Label>
+                            <Select
+                                value={String(inputs.filterPlateThickness)}
+                                onValueChange={(v) => update("filterPlateThickness", Number(v))}
                             >
-                                <Minus className="h-4 w-4" />
-                            </button>
-                            <span className="w-10 text-center font-mono text-sm">{inputs.filterPlateCount}</span>
-                            <button
-                                type="button"
-                                onClick={() => update("filterPlateCount", inputs.filterPlateCount + 1)}
-                                className="h-9 w-9 rounded-lg border border-input flex items-center justify-center hover:bg-secondary"
-                            >
-                                <PlusIcon className="h-4 w-4" />
-                            </button>
+                                <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
+                                    <div className="flex items-center gap-1">
+                                        <NumberFlow
+                                            value={inputs.filterPlateThickness}
+                                            format={{ minimumFractionDigits: 0, maximumFractionDigits: 2 }}
+                                            className="font-mono text-sm"
+                                        />
+                                        <span className="font-mono text-sm text-muted-foreground">mm</span>
+                                    </div>
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {shellThicknesses.map((t) => (
+                                        <SelectItem key={t} value={String(t)} className="font-mono">
+                                            {t} mm
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">
+                                Circular plates at vessel ID
+                            </p>
                         </div>
                     </div>
                 </CardContent>
@@ -773,6 +881,25 @@ export default function Index() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                    {/* Global standard */}
+                    <div className="space-y-2">
+                        <Label>Standard</Label>
+                        <Select
+                            value={inputs.globalNozzleStandard}
+                            onValueChange={(v) => update("globalNozzleStandard", v as FlangeStandard)}
+                        >
+                            <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="B16.5">ASME B16.5</SelectItem>
+                                <SelectItem value="PN10">PN10 (DIN/EN)</SelectItem>
+                                <SelectItem value="PN16">PN16 (DIN/EN)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    {/* Nozzle rows */}
                     {inputs.nozzles.map((nozzle, idx) => (
                         <div key={idx} className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end p-3 rounded-lg bg-secondary/30">
                             <div className="space-y-1">
@@ -781,7 +908,8 @@ export default function Index() {
                                     value={nozzle.type}
                                     onValueChange={(v) => {
                                         const updated = [...inputs.nozzles];
-                                        updated[idx] = { ...updated[idx], type: v as NozzleItemType };
+                                        const defaultLength = v === "manhole" ? 300 : 150;
+                                        updated[idx] = { ...updated[idx], type: v as NozzleItemType, neckLength: defaultLength };
                                         update("nozzles", updated);
                                     }}
                                 >
@@ -795,26 +923,6 @@ export default function Index() {
                                 </Select>
                             </div>
                             <div className="space-y-1">
-                                <Label className="text-xs">Standard</Label>
-                                <Select
-                                    value={nozzle.standard}
-                                    onValueChange={(v) => {
-                                        const updated = [...inputs.nozzles];
-                                        updated[idx] = { ...updated[idx], standard: v as FlangeStandard };
-                                        update("nozzles", updated);
-                                    }}
-                                >
-                                    <SelectTrigger className="h-9 bg-background text-sm">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="B16.5">ASME B16.5</SelectItem>
-                                        <SelectItem value="PN10">PN10 (DIN/EN)</SelectItem>
-                                        <SelectItem value="PN16">PN16 (DIN/EN)</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-1">
                                 <Label className="text-xs">Size</Label>
                                 <Input
                                     value={nozzle.size}
@@ -823,7 +931,21 @@ export default function Index() {
                                         updated[idx] = { ...updated[idx], size: e.target.value };
                                         update("nozzles", updated);
                                     }}
-                                    placeholder={nozzle.type === 'manhole' ? (nozzle.standard === 'B16.5' ? '24"' : 'DN600') : 'NPS 4'}
+                                    placeholder={nozzle.type === "manhole" ? (inputs.globalNozzleStandard === "B16.5" ? '24"' : "DN600") : "NPS 4"}
+                                    className="h-9 bg-background text-sm"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs">Length (mm)</Label>
+                                <Input
+                                    type="number"
+                                    min={0}
+                                    value={nozzle.neckLength ?? (nozzle.type === "manhole" ? 300 : 150)}
+                                    onChange={(e) => {
+                                        const updated = [...inputs.nozzles];
+                                        updated[idx] = { ...updated[idx], neckLength: parseFloat(e.target.value) || 0 };
+                                        update("nozzles", updated);
+                                    }}
                                     className="h-9 bg-background text-sm"
                                 />
                             </div>
@@ -875,7 +997,7 @@ export default function Index() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => update("nozzles", [...inputs.nozzles, { type: 'nozzle' as NozzleItemType, standard: 'B16.5' as FlangeStandard, size: '', flangeType: 'weld_neck' as FlangeType, quantity: 1 }])}
+                        onClick={() => update("nozzles", [...inputs.nozzles, { type: "nozzle" as NozzleItemType, size: "", flangeType: "weld_neck" as FlangeType, quantity: 1, neckLength: 150 } as NozzleSpec])}
                     >
                         <PlusIcon className="h-4 w-4 mr-2" /> Add Nozzle / Manhole
                     </Button>
@@ -894,73 +1016,99 @@ export default function Index() {
                     {inputs.orientation === "vertical" ? (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                             <div className="space-y-2">
-                                <Label>Leg Pipe OD (mm)</Label>
-                                <Input
-                                    type="number" min={1}
-                                    value={inputs.legInputs.pipeOD || ""}
-                                    onChange={(e) => update("legInputs", { ...inputs.legInputs, pipeOD: parseFloat(e.target.value) || 0 })}
-                                    placeholder="e.g. 168.3"
-                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Leg Pipe Wall Thickness (mm)</Label>
-                                <Input
-                                    type="number" min={1}
-                                    value={inputs.legInputs.pipeThickness || ""}
-                                    onChange={(e) => update("legInputs", { ...inputs.legInputs, pipeThickness: parseFloat(e.target.value) || 0 })}
-                                    placeholder="e.g. 7.11"
-                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
-                                />
+                                <Label>Diameter (inches)</Label>
+                                <Select
+                                    value={String(inputs.legInputs.diameter)}
+                                    onValueChange={(v) => update("legInputs", { ...inputs.legInputs, diameter: Number(v) })}
+                                >
+                                    <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {Object.keys(SA106_PIPE_SCHEDULE).map((nps) => (
+                                            <SelectItem key={nps} value={nps} className="font-mono">
+                                                {nps}" NPS
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="space-y-2">
                                 <Label>Leg Length (mm)</Label>
                                 <Input
-                                    type="number" min={1}
-                                    value={inputs.legInputs.legLength || ""}
-                                    onChange={(e) => update("legInputs", { ...inputs.legInputs, legLength: parseFloat(e.target.value) || 0 })}
+                                    type="number"
+                                    min={1}
+                                    value={inputs.legInputs.length || ""}
+                                    onChange={(e) => update("legInputs", { ...inputs.legInputs, length: parseFloat(e.target.value) || 0 })}
                                     placeholder="e.g. 600"
                                     className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
                                 />
                             </div>
-                            <p className="text-xs text-muted-foreground md:col-span-3">
-                                Base plate auto-sized to 10% larger than pipe OD (square). Base plate thickness: 12 mm.
-                            </p>
+                            <div className="space-y-2">
+                                <Label>Quantity</Label>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-11 w-11 shrink-0"
+                                        onClick={() => update("legInputs", { ...inputs.legInputs, quantity: Math.max(4, inputs.legInputs.quantity - 1) })}
+                                    >
+                                        <Minus className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <div className="w-16 flex items-center justify-center rounded-md border border-input bg-secondary/50 h-11">
+                                        <NumberFlow
+                                            value={inputs.legInputs.quantity}
+                                            className="font-mono font-medium text-sm tabular-nums"
+                                        />
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-11 w-11 shrink-0"
+                                        onClick={() => update("legInputs", { ...inputs.legInputs, quantity: inputs.legInputs.quantity + 1 })}
+                                    >
+                                        <PlusIcon className="h-3.5 w-3.5" />
+                                    </Button>
+                                </div>
+                            </div>
+                            {SA106_PIPE_SCHEDULE[inputs.legInputs.diameter] && (
+                                <p className="text-xs text-muted-foreground md:col-span-3">
+                                    Wall thickness: {SA106_PIPE_SCHEDULE[inputs.legInputs.diameter].wall_mm} mm · OD: {SA106_PIPE_SCHEDULE[inputs.legInputs.diameter].od_mm} mm
+                                    {" "}(ASME B36.10M Sch 40) · Base plate auto-sized to 10% larger than OD, 12 mm thick.
+                                </p>
+                            )}
                         </div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                        <div className="space-y-4">
                             <div className="space-y-2">
-                                <Label>Saddle Contact Angle (°)</Label>
-                                <Input
-                                    type="number" min={90} max={180}
-                                    value={inputs.saddleInputs.angle || ""}
-                                    onChange={(e) => update("saddleInputs", { ...inputs.saddleInputs, angle: parseFloat(e.target.value) || 120 })}
-                                    placeholder="120"
-                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
-                                />
+                                <Label>Quantity</Label>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-11 w-11 shrink-0"
+                                        onClick={() => update("saddleInputs", { ...inputs.saddleInputs, quantity: Math.max(2, inputs.saddleInputs.quantity - 1) })}
+                                    >
+                                        <Minus className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <div className="w-16 flex items-center justify-center rounded-md border border-input bg-secondary/50 h-11">
+                                        <NumberFlow
+                                            value={inputs.saddleInputs.quantity}
+                                            className="font-mono font-medium text-sm tabular-nums"
+                                        />
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-11 w-11 shrink-0"
+                                        onClick={() => update("saddleInputs", { ...inputs.saddleInputs, quantity: inputs.saddleInputs.quantity + 1 })}
+                                    >
+                                        <PlusIcon className="h-3.5 w-3.5" />
+                                    </Button>
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label>Saddle Width b (mm)</Label>
-                                <Input
-                                    type="number" min={50}
-                                    value={inputs.saddleInputs.width || ""}
-                                    onChange={(e) => update("saddleInputs", { ...inputs.saddleInputs, width: parseFloat(e.target.value) || 0 })}
-                                    placeholder="e.g. 300"
-                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Distance A — Tangent to Saddle (mm)</Label>
-                                <Input
-                                    type="number" min={0}
-                                    value={inputs.saddleInputs.distanceA || ""}
-                                    onChange={(e) => update("saddleInputs", { ...inputs.saddleInputs, distanceA: parseFloat(e.target.value) || 0 })}
-                                    placeholder="e.g. 500"
-                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
-                                />
-                            </div>
-                            <p className="text-xs text-muted-foreground md:col-span-3">
-                                Zick analysis (L.P. Zick, 1951) — longitudinal bending stresses at saddle and midspan.
+                            <p className="text-xs text-muted-foreground">
+                                Saddle dimensions are derived from vessel geometry per Zick analysis (L.P. Zick, 1951).
                             </p>
                         </div>
                     )}
