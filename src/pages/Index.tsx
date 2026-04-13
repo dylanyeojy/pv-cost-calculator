@@ -48,11 +48,11 @@ export default function Index() {
     const navigate = useNavigate();
 
     const shellThicknesses =
-        inputs.materialType === "carbon_steel"
+        inputs.materialType === "SA516 Gr 70"
             ? CS_THICKNESSES
             : SS_THICKNESSES;
     const dishThicknesses =
-        dishEndInputs.materialType === "carbon_steel"
+        inputs.materialType === "SA516 Gr 70"
             ? CS_THICKNESSES
             : SS_THICKNESSES;
 
@@ -222,28 +222,6 @@ export default function Index() {
 
                     {inputs.orientation === "vertical" && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                            <div className="space-y-2">
-                                <Label>Fluid Density (kg/m³)</Label>
-                                <Input
-                                    type="number"
-                                    min={1}
-                                    value={inputs.fluidDensity || ""}
-                                    onChange={(e) => update("fluidDensity", parseFloat(e.target.value) || 1000)}
-                                    placeholder="1000 (water)"
-                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Liquid Height in Vessel (mm)</Label>
-                                <Input
-                                    type="number"
-                                    min={0}
-                                    value={inputs.liquidHeight || ""}
-                                    onChange={(e) => update("liquidHeight", parseFloat(e.target.value) || 0)}
-                                    placeholder="e.g. 3000"
-                                    className="h-11 bg-secondary/50 border-input focus-visible:ring-primary"
-                                />
-                            </div>
                             <div className="space-y-2 md:col-span-2">
                                 <Label>Total Design Pressure Override (kPa)</Label>
                                 <Input
@@ -277,7 +255,7 @@ export default function Index() {
                                 value={inputs.materialType}
                                 onValueChange={(v) => {
                                     update("materialType", v);
-                                    if (v === "carbon_steel") {
+                                    if (v === "SA516 Gr 70") {
                                         update(
                                             "plateThickness",
                                             CS_THICKNESSES[0],
@@ -294,11 +272,14 @@ export default function Index() {
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="carbon_steel">
-                                        Carbon Steel
+                                    <SelectItem value="SA516 Gr 70">
+                                        SA516 Gr 70
                                     </SelectItem>
-                                    <SelectItem value="stainless_steel">
-                                        Stainless Steel
+                                    <SelectItem value="SS304">
+                                        SS304
+                                    </SelectItem>
+                                    <SelectItem value="SS316">
+                                        SS316
                                     </SelectItem>
                                 </SelectContent>
                             </Select>
@@ -519,40 +500,8 @@ export default function Index() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-5">
-                    {/* Row 1: Material Type + Plate Thickness */}
+                    {/* Row 1: Plate Thickness */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        <div className="space-y-2">
-                            <Label>Material Type</Label>
-                            <Select
-                                value={dishEndInputs.materialType}
-                                onValueChange={(v) => {
-                                    updateDish("materialType", v);
-                                    if (v === "carbon_steel") {
-                                        updateDish(
-                                            "plateThickness",
-                                            CS_THICKNESSES[0],
-                                        );
-                                    } else {
-                                        updateDish(
-                                            "plateThickness",
-                                            SS_THICKNESSES[0],
-                                        );
-                                    }
-                                }}
-                            >
-                                <SelectTrigger className="h-11 bg-secondary/50 border-input focus:ring-primary">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="carbon_steel">
-                                        Carbon Steel
-                                    </SelectItem>
-                                    <SelectItem value="stainless_steel">
-                                        Stainless Steel
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
                         <div className="space-y-2">
                             <Label>Plate Thickness (mm)</Label>
                             <Select

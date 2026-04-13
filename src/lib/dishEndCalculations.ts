@@ -1,6 +1,6 @@
 import {
   HeadType, StraightFace, DishEndInputs, DishEndGeometry, DishEndResults,
-  NestingOption, NestingPlateSpec, PlateSize, PricingData,
+  NestingOption, NestingPlateSpec, PlateSize, PricingData, MaterialType,
   CS_PLATE_SIZES, SS_PLATE_SIZES, CS_DENSITY, SS_DENSITY,
 } from './types';
 
@@ -238,9 +238,10 @@ export function calculateDishEnd(
   vesselID: number,
   vesselOD: number,
   pricing: PricingData,
+  materialType: MaterialType,
 ): DishEndResults {
-  const density = dishInputs.materialType === 'carbon_steel' ? CS_DENSITY : SS_DENSITY;
-  const plates = dishInputs.materialType === 'carbon_steel' ? CS_PLATE_SIZES : SS_PLATE_SIZES;
+  const density = materialType === 'SA516 Gr 70' ? CS_DENSITY : SS_DENSITY;
+  const plates = materialType === 'SA516 Gr 70' ? CS_PLATE_SIZES : SS_PLATE_SIZES;
 
   const geometry = calcDishGeometry(
     dishInputs.headType,
@@ -258,7 +259,7 @@ export function calculateDishEnd(
   const nestingOptions = optimizeNesting(geometry.BD, totalQty, plates);
 
   // Attach weight and cost
-  const pricePerKg = getPlatePricePerKg(dishInputs, pricing);
+  const pricePerKg = getPlatePricePerKg(materialType, pricing);
   const optionsWithCost = nestingOptions.map(opt => {
     const totalWeight = opt.boughtAreaM2 * dishInputs.plateThickness / 1000 * density;
     const cost = totalWeight * pricePerKg;
@@ -276,8 +277,8 @@ export function calculateDishEnd(
   };
 }
 
-function getPlatePricePerKg(inputs: DishEndInputs, pricing: PricingData): number {
-  if (inputs.materialType === 'carbon_steel') return pricing.cs_plate_per_kg;
+function getPlatePricePerKg(materialType: MaterialType, pricing: PricingData): number {
+  if (materialType === 'SA516 Gr 70') return pricing.cs_plate_per_kg;
   return pricing.ss_plate_per_kg;
 }
 

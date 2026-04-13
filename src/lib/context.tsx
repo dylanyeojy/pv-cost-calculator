@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { VesselInputs, CalculationResults, PricingData, DEFAULT_PRICING, AdvancedSettings, DEFAULT_ADVANCED, HistoryEntry, MaterialType, SSGrade, DishEndInputs, HeadType, VesselOrientation, NozzleSpec, LegInputs, SaddleInputs } from './types';
-import { calculateAll, getASMEAllowableStress, calculateLiquidHead, calculateUG27Shell, calculateUG32Head, calculateFilterPlates, calculateNozzleBOM, calculateLegs, calculateZickSaddle } from './calculations';
+import { VesselInputs, CalculationResults, PricingData, DEFAULT_PRICING, AdvancedSettings, DEFAULT_ADVANCED, HistoryEntry, MaterialType, DishEndInputs, HeadType, VesselOrientation, NozzleSpec, LegInputs, SaddleInputs } from './types';
+import { calculateAll, getASMEAllowableStress, calculateLiquidHead, calculateUG27Shell, calculateUG32Head, calculateFilterPlates, calculateNozzleBOM, calculateLegs, calculateZickSaddle, calculateManholeNeckBlanks } from './calculations';
 import { calculateDishEnd, suggestedSF } from './dishEndCalculations';
 import { fetchHistory, saveEstimate, deleteEstimate, fetchPricing, savePricing, fetchAdvanced, saveAdvanced } from './firestore';
 import { toast } from 'sonner';
@@ -38,27 +38,23 @@ const defaultInputs: VesselInputs = {
   diameter: 0,
   shellLength: 0,
   plateThickness: 6.40,
-  materialType: 'carbon_steel' as MaterialType,
-  ssGrade: 'SS304' as SSGrade,
+  materialType: 'SA516 Gr 70' as MaterialType,
   rubberLining: false,
   quantity: 1,
-  // Phase 2 defaults
   orientation: 'vertical' as VesselOrientation,
-  jointEfficiency: 1.0,
+  jointEfficiency: 0.85,
   corrosionAllowance: 3,
-  fluidDensity: 1000,
-  liquidHeight: 0,
   totalDesignPressureOverride: 0,
   filterPlateCount: 0,
+  globalNozzleStandard: 'B16.5',
+  filterPlateThickness: 22.30,
   nozzles: [] as NozzleSpec[],
-  legInputs: { pipeOD: 114.3, pipeThickness: 6.02, legLength: 600 } as LegInputs,
-  saddleInputs: { angle: 120, width: 300, distanceA: 500 } as SaddleInputs,
+  legInputs: { diameter: 4, length: 1500, quantity: 4 } as LegInputs,
+  saddleInputs: { quantity: 2 } as SaddleInputs,
 };
 
 const defaultDishEndInputs: DishEndInputs = {
   headType: 'ellipsoidal' as HeadType,
-  materialType: 'carbon_steel' as MaterialType,
-  ssGrade: 'SS304' as SSGrade,
   plateThickness: 6.40,
   straightFace: 50,
   quantity: 2,
@@ -102,12 +98,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const runCalculation = async () => {
-    const calc = calculateAll(inputs, pricing, advancedSettings);
+    const vesselOD_mm = inputs.diameterType === 'OD'
+      ? inputs.diameter
+      : inputs.diameter + 2 * inputs.plateThickness;
+    const neckBlanks = calculateManholeNeckBlanks(inputs.nozzles, vesselOD_mm);
+    const calc = calculateAll(inputs, pricing, advancedSettings, neckBlanks);
 
     // Calculate dish end if quantity > 0
     if (dishEndInputs.quantity > 0 && inputs.diameter > 0) {
       const { od, id } = calc;
-      const dishResult = calculateDishEnd(dishEndInputs, id, od, pricing);
+      const dishResult = calculateDishEnd(dishEndInputs, id, od, pricing, inputs.materialType);
       calc.dishEnd = dishResult;
 
       // Add dish end best cost to grand total
@@ -120,10 +120,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { id } = calc;
     if (inputs.designPressure > 0 && inputs.designTemperature >= 20 && inputs.designTemperature <= 400) {
       try {
-        const S = getASMEAllowableStress(inputs.materialType, inputs.ssGrade, inputs.designTemperature);
+        const S = getASMEAllowableStress(inputs.materialType, inputs.designTemperature);
         const P_top_MPa = inputs.designPressure / 1000; // kPa → MPa
         const liquidMPa = inputs.orientation === 'vertical'
-          ? calculateLiquidHead(inputs.liquidHeight, inputs.fluidDensity)
+          ? calculateLiquidHead(inputs.shellLength)
           : 0;
         const P_total = inputs.totalDesignPressureOverride > 0
           ? inputs.totalDesignPressureOverride / 1000
@@ -150,22 +150,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // ─── Phase 2: Filter plates ───
     if (inputs.filterPlateCount > 0) {
-      const pricePerKg = inputs.materialType === 'carbon_steel' ? pricing.cs_plate_per_kg : pricing.ss_plate_per_kg;
-      calc.filterPlates = calculateFilterPlates(inputs.filterPlateCount, id, inputs.materialType, pricePerKg);
+      const pricePerKg = inputs.materialType === 'SA516 Gr 70' ? pricing.cs_plate_per_kg : pricing.ss_plate_per_kg;
+      calc.filterPlates = calculateFilterPlates(inputs.filterPlateCount, id, inputs.materialType, pricePerKg, inputs.filterPlateThickness);
       calc.grandTotal += calc.filterPlates.totalCost;
     }
 
     // ─── Phase 2: Nozzle BOM ───
     if (inputs.nozzles.length > 0) {
-      calc.nozzleBOM = calculateNozzleBOM(inputs.nozzles);
+      calc.nozzleBOM = calculateNozzleBOM(inputs.nozzles, inputs.globalNozzleStandard, pricing);
     }
 
     // ─── Phase 2: Supports ───
-    const supportPricePerKg = inputs.materialType === 'carbon_steel' ? pricing.cs_plate_per_kg : pricing.ss_plate_per_kg;
+    const supportPricePerKg = inputs.materialType === 'SA516 Gr 70' ? pricing.cs_plate_per_kg : pricing.ss_plate_per_kg;
     if (inputs.orientation === 'vertical') {
       const legs = calculateLegs(inputs.legInputs, inputs.materialType, supportPricePerKg);
-      calc.support = { type: 'legs', legs };
-      calc.grandTotal += legs.totalCost;
+      if (legs) {
+        calc.support = { type: 'legs', legs };
+        calc.grandTotal += legs.totalCost;
+      }
     } else {
       const shellWeightN = calc.shellOptions[0]
         ? (calc.shellOptions[0].totalWeight ?? 0) * 9.81
@@ -194,7 +196,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       projectName: inputs.projectName,
       tagNumber: inputs.tagNumber,
       materialType: inputs.materialType,
-      ssGrade: inputs.materialType === 'stainless_steel' ? inputs.ssGrade : undefined,
       od: calc.od,
       shellLength: inputs.shellLength,
       grandTotal: calc.grandTotal,

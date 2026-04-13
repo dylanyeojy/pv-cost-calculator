@@ -3,10 +3,11 @@ import {
   CS_PLATE_SIZES, SS_PLATE_SIZES, CS_DENSITY, SS_DENSITY,
   CS_THICKNESSES, SS_THICKNESSES,
   ShellOption, CourseDetail, CalculationResults,
-  MaterialType, SSGrade, HeadType,
+  MaterialType, HeadType, DiameterType, FlangeStandard,
   ALLOWABLE_STRESS_SA516_GR70, ALLOWABLE_STRESS_SS304, ALLOWABLE_STRESS_SS316,
-  FilterPlateResult, NozzleSpec, NozzleBOMItem, MANHOLE_FASTENERS,
+  FilterPlateResult, NozzleSpec, NozzleBOMItem,
   LegInputs, SaddleInputs, LegSupportResult, ZickResult,
+  SA106_PIPE_SCHEDULE, FLANGE_FASTENER_DATA, NeckBlankPiece,
 } from './types';
 
 // ─── Geometry helpers ───
@@ -96,6 +97,7 @@ function evaluateShell(
   od: number,
   shellLength: number,
   quantity: number,
+  additionalPieces: NeckBlankPiece[] = [],
 ): ShellOption {
   const circumference = Math.PI * od;
   const numCourses = courseWidths.length;
@@ -136,13 +138,44 @@ function evaluateShell(
       piecesPerPlate: piecesPerPlate >= 1 ? piecesPerPlate : 1,
       standardPlates,
       boughtM2: boughtMm2 / 1e6,
+      pieceType: 'shell_course',
     });
   }
 
-  // Weld lengths (metres)
+  // Include neck blank pieces in the same plate pool
+  for (const piece of additionalPieces) {
+    const pieceAreaMm2 = piece.width_mm * piece.height_mm;
+    // Use the first course's plate dimensions as the reference plate for neck blanks
+    // (or a default 2438×6096 plate if no courses). Each neck blank is cut from a plate.
+    const refWidth = courseWidths[0] ?? 2438;
+    const refLength = courseLengths[0] ?? 6096;
+    const plateAreaMm2 = refWidth * refLength;
+    const piecesPerPlate = Math.max(1, Math.floor(plateAreaMm2 / pieceAreaMm2));
+    const standardPlates = Math.ceil(piece.quantity / piecesPerPlate);
+    const boughtMm2 = standardPlates * refWidth * refLength;
+
+    totalPieces += piece.quantity;
+    totalStandardPlates += standardPlates;
+    totalBoughtMm2 += boughtMm2;
+
+    courses.push({
+      width: piece.width_mm,
+      length: piece.height_mm,
+      actualHeight: piece.height_mm,
+      platesAround: piece.quantity,
+      piecesPerPlate,
+      standardPlates,
+      boughtM2: boughtMm2 / 1e6,
+      pieceType: 'neck_blank',
+    });
+  }
+
+  // Weld lengths (metres) — only count shell courses
+  const shellCourses = courses.filter(c => c.pieceType === 'shell_course');
+  const shellNArounds = nArounds;
   // Longitudinal: each course contributes (nAround-1) seams of height actualH per vessel
-  const longitudinalWeldM = courses.reduce(
-    (sum, c, i) => sum + (nArounds[i] - 1) * (c.actualHeight / 1000),
+  const longitudinalWeldM = shellCourses.reduce(
+    (sum, c, i) => sum + (shellNArounds[i] - 1) * (c.actualHeight / 1000),
     0,
   ) * quantity;
   // Circumferential: one seam per course junction
@@ -192,6 +225,7 @@ export function optimizeShell(
   plates: PlateSize[],
   topN = 5,
   quantity = 1,
+  additionalPieces: NeckBlankPiece[] = [],
 ): ShellOption[] {
   const allResults: ShellOption[] = [];
   const seen = new Set<string>();
@@ -212,7 +246,7 @@ export function optimizeShell(
       });
       if (nAroundCombo.some(n => n === 0)) continue;
 
-      const result = evaluateShell(courseWidths, courseLengths, nAroundCombo, od, shellLength, quantity);
+      const result = evaluateShell(courseWidths, courseLengths, nAroundCombo, od, shellLength, quantity, additionalPieces);
 
       const key = `${result.totalStandardPlates}|${result.totalWeldLength.toFixed(1)}|${nAroundCombo.join(',')}|${result.numCourses}`;
       if (seen.has(key)) continue;
@@ -242,19 +276,19 @@ function getDerivedDiameters(inputs: VesselInputs): { od: number; id: number } {
 }
 
 function getAvailablePlateSizes(inputs: VesselInputs): PlateSize[] {
-  return inputs.materialType === 'carbon_steel' ? CS_PLATE_SIZES : SS_PLATE_SIZES;
+  return inputs.materialType === 'SA516 Gr 70' ? CS_PLATE_SIZES : SS_PLATE_SIZES;
 }
 
 function getDensity(inputs: VesselInputs): number {
-  return inputs.materialType === 'carbon_steel' ? CS_DENSITY : SS_DENSITY;
+  return inputs.materialType === 'SA516 Gr 70' ? CS_DENSITY : SS_DENSITY;
 }
 
 function getPlatePricePerKg(inputs: VesselInputs, pricing: PricingData): number {
-  if (inputs.materialType === 'carbon_steel') return pricing.cs_plate_per_kg;
+  if (inputs.materialType === 'SA516 Gr 70') return pricing.cs_plate_per_kg;
   return pricing.ss_plate_per_kg;
 }
 
-export function calculateAll(inputs: VesselInputs, pricing: PricingData, advanced: AdvancedSettings = DEFAULT_ADVANCED): CalculationResults {
+export function calculateAll(inputs: VesselInputs, pricing: PricingData, advanced: AdvancedSettings = DEFAULT_ADVANCED, additionalPieces: NeckBlankPiece[] = []): CalculationResults {
   // FIX 3: thickness validation
   const thickness = inputs.plateThickness;
   if (!thickness || thickness <= 0) throw new Error('Plate thickness must be > 0 mm');
@@ -265,7 +299,7 @@ export function calculateAll(inputs: VesselInputs, pricing: PricingData, advance
   const pricePerKg = getPlatePricePerKg(inputs, pricing);
   const quantity = inputs.quantity ?? 1;
 
-  const shellOptions = optimizeShell(od, inputs.shellLength, plates, 5, quantity);
+  const shellOptions = optimizeShell(od, inputs.shellLength, plates, 5, quantity, additionalPieces);
 
   // FCAW weld cost scales linearly with plate thickness relative to 10 mm reference
   const REFERENCE_THICKNESS_MM = 10;
@@ -349,16 +383,15 @@ export function calculateAll(inputs: VesselInputs, pricing: PricingData, advance
 
 export function getASMEAllowableStress(
   materialType: MaterialType,
-  ssGrade: SSGrade | undefined,
   tempC: number,
 ): number {
   if (tempC < 20 || tempC > 400) {
     throw new Error(`Design temperature ${tempC}°C is outside the supported range (20–400°C).`);
   }
   let table: [number, number][];
-  if (materialType === 'carbon_steel') {
+  if (materialType === 'SA516 Gr 70') {
     table = ALLOWABLE_STRESS_SA516_GR70;
-  } else if (ssGrade === 'SS304') {
+  } else if (materialType === 'SS304') {
     table = ALLOWABLE_STRESS_SS304;
   } else {
     table = ALLOWABLE_STRESS_SS316;
@@ -375,14 +408,15 @@ export function getASMEAllowableStress(
 
 // ─── Liquid head pressure ───
 
-export function calculateLiquidHead(liquidHeightMm: number, fluidDensityKgM3: number): number {
-  return (fluidDensityKgM3 * 9.81 * (liquidHeightMm / 1000)) / 1e6;
+export function calculateLiquidHead(liquidHeightMm: number): number {
+  const fluidDensity = 1000; // kg/m³ — conservative assumption (water)
+  return (fluidDensity * 9.81 * (liquidHeightMm / 1000)) / 1e6;
 }
 
 // ─── UG-27: Cylindrical shell under internal pressure ───
 
 function getNextNominalThickness(tMm: number, materialType: MaterialType): number {
-  const list = materialType === 'carbon_steel' ? CS_THICKNESSES : SS_THICKNESSES;
+  const list = materialType === 'SA516 Gr 70' ? CS_THICKNESSES : SS_THICKNESSES;
   const next = list.find(t => t >= tMm);
   return next ?? list[list.length - 1];
 }
@@ -438,20 +472,20 @@ export function calculateFilterPlates(
   idMm: number,
   materialType: MaterialType,
   pricePerKg: number,
+  plateThickness: number,
 ): FilterPlateResult {
   if (count === 0) {
     return { count: 0, diameterMm: idMm, thicknessMm: 0, weightPerPlateKg: 0, totalWeightKg: 0, totalCost: 0 };
   }
-  const thicknessMm = materialType === 'carbon_steel' ? 22.3 : 22;
-  const density = materialType === 'carbon_steel' ? CS_DENSITY : SS_DENSITY;
+  const density = materialType === 'SA516 Gr 70' ? CS_DENSITY : SS_DENSITY;
   const radiusM = (idMm / 1000) / 2;
   const areaM2 = Math.PI * radiusM * radiusM;
-  const weightPerPlate = areaM2 * (thicknessMm / 1000) * density;
+  const weightPerPlate = areaM2 * (plateThickness / 1000) * density;
   const totalWeight = weightPerPlate * count;
   return {
     count,
     diameterMm: idMm,
-    thicknessMm,
+    thicknessMm: plateThickness,
     weightPerPlateKg: weightPerPlate,
     totalWeightKg: totalWeight,
     totalCost: totalWeight * 2 * pricePerKg,
@@ -460,30 +494,85 @@ export function calculateFilterPlates(
 
 // ─── Nozzle / Manhole BOM ───
 
-export function calculateNozzleBOM(nozzles: NozzleSpec[]): NozzleBOMItem[] {
-  return nozzles.map(spec => {
-    if (spec.type !== 'manhole') {
-      return { spec, fasteners: null };
+export function calculateNozzleBOM(
+  nozzles: NozzleSpec[],
+  globalNozzleStandard: FlangeStandard,
+  pricing: PricingData,
+  rubberLiningThickness: number = 0,
+): NozzleBOMItem[] {
+  return nozzles.map(nozzle => {
+    const fastenerKey = `${globalNozzleStandard}_${nozzle.size}`;
+    const fastenerData = FLANGE_FASTENER_DATA[fastenerKey] ?? null;
+
+    let boltLength: number | null = null;
+    let boltCount: number | null = null;
+    let nutCount: number | null = null;
+    let washerCount: number | null = null;
+    let boltDiameterMm: number | null = null;
+
+    if (fastenerData) {
+      const { flangeThicknessMm, nutHeightMm, washerThicknessMm, boltDiameterMm: dia } = fastenerData;
+      boltLength = 2 * flangeThicknessMm + 3 + 2 * nutHeightMm + 2 * washerThicknessMm + 2 * rubberLiningThickness;
+      boltCount = fastenerData.boltCount * nozzle.quantity;
+      nutCount = boltCount;
+      washerCount = boltCount * 2;
+      boltDiameterMm = dia;
     }
-    let key: string;
-    if (spec.standard === 'B16.5') {
-      key = 'B16.5_24';
-    } else if (spec.standard === 'PN10') {
-      key = 'PN10_DN600';
-    } else {
-      key = 'PN16_DN600';
+
+    const sizeInches = parseInt(nozzle.size, 10);
+    const pipeData = SA106_PIPE_SCHEDULE[sizeInches] ?? null;
+    let neckWeightKg: number | null = null;
+    let neckCostRM: number | null = null;
+    if (pipeData) {
+      const { od_mm, wall_mm } = pipeData;
+      neckWeightKg = Math.PI * (od_mm - wall_mm) * wall_mm * 1e-6 * 7850 * (nozzle.neckLength / 1000) * nozzle.quantity;
+      neckCostRM = neckWeightKg * pricing.sa106_per_kg;
     }
-    const base = MANHOLE_FASTENERS[key];
+
+    const blindFlangeQty = nozzle.type === 'manhole' ? nozzle.quantity : 0;
+
     return {
-      spec,
-      fasteners: {
-        boltCount: base.boltCount * spec.quantity,
-        boltSpec: base.boltSpec,
-        nutCount: base.nutCount * spec.quantity,
-        washerCount: base.washerCount * spec.quantity,
-      },
+      spec: nozzle,
+      fasteners: null,
+      boltLength,
+      neckWeightKg,
+      neckCostRM,
+      boltCount,
+      nutCount,
+      washerCount,
+      boltDiameterMm,
+      blindFlangeQty,
     };
   });
+}
+
+// ─── Manhole neck blanks ───
+
+export function calculateManholeNeckBlanks(
+  nozzles: NozzleSpec[],
+  vesselOD_mm: number,
+): NeckBlankPiece[] {
+  const results: NeckBlankPiece[] = [];
+  for (const nozzle of nozzles) {
+    if (nozzle.type !== 'manhole') continue;
+    const sizeInches = parseInt(nozzle.size, 10);
+    const pipeData = SA106_PIPE_SCHEDULE[sizeInches] ?? null;
+    if (!pipeData) continue;
+    const neck_OD_mm = pipeData.od_mm;
+    const R_vessel = vesselOD_mm / 2;
+    const r_neck = neck_OD_mm / 2;
+    const saddleCutDepth = R_vessel - Math.sqrt(R_vessel * R_vessel - r_neck * r_neck);
+    const width_mm = Math.PI * neck_OD_mm;
+    const height_mm = nozzle.neckLength + saddleCutDepth;
+    results.push({
+      width_mm,
+      height_mm,
+      quantity: nozzle.quantity,
+      label: `Manhole Neck ${nozzle.size}"`,
+      pieceType: 'neck_blank',
+    });
+  }
+  return results;
 }
 
 // ─── Vertical vessel — pipe leg supports ───
@@ -492,25 +581,23 @@ export function calculateLegs(
   legInputs: LegInputs,
   materialType: MaterialType,
   pricePerKg: number,
-): LegSupportResult {
-  const density = materialType === 'carbon_steel' ? CS_DENSITY : SS_DENSITY;
-  const { pipeOD, pipeThickness, legLength } = legInputs;
-  const OD_m = pipeOD / 1000;
-  const ID_m = (pipeOD - 2 * pipeThickness) / 1000;
-  const L_m = legLength / 1000;
-  const crossSectionM2 = Math.PI / 4 * (OD_m * OD_m - ID_m * ID_m);
-  const weightPerLeg = crossSectionM2 * L_m * density;
+): LegSupportResult | null {
+  const { diameter, length, quantity } = legInputs;
+  const schedule = SA106_PIPE_SCHEDULE[diameter];
+  if (!schedule) return null;
 
-  const basePlateSizeMm = pipeOD * 1.1;
-  const basePlateThicknessMm = 12;
+  const { od_mm, wall_mm } = schedule;
+  const weightPerLeg = Math.PI * (od_mm - wall_mm) * wall_mm * (1 / 1000000) * 7850 * (length / 1000);
+
+  const basePlateSizeMm = od_mm * 1.1;
   const baseSide_m = basePlateSizeMm / 1000;
-  const basePlateWeight = baseSide_m * baseSide_m * (basePlateThicknessMm / 1000) * density;
+  const basePlateWeight = baseSide_m * baseSide_m * 0.012 * 7850;
 
-  const totalWeight = (weightPerLeg + basePlateWeight) * 4;
+  const totalWeight = (weightPerLeg + basePlateWeight) * quantity;
   return {
-    pipeOD,
-    pipeThickness,
-    legLength,
+    od_mm,
+    wall_mm,
+    quantity,
     basePlateSizeMm,
     weightPerLegKg: weightPerLeg,
     basePlateWeightKg: basePlateWeight,
@@ -536,9 +623,13 @@ export function calculateZickSaddle(
   materialType: MaterialType,
   pricePerKg: number,
 ): ZickResult {
-  const density = materialType === 'carbon_steel' ? CS_DENSITY : SS_DENSITY;
+  const density = materialType === 'SA516 Gr 70' ? CS_DENSITY : SS_DENSITY;
   const { L, OD, t, H } = vessel;
-  const { width: b, distanceA: A } = saddleInputs;
+  const { quantity } = saddleInputs;
+
+  const theta = 120;
+  const b = 0.5 * OD;
+  const A = 0.2 * L;
 
   const L_m = L / 1000;
   const H_m = H / 1000;
@@ -568,7 +659,7 @@ export function calculateZickSaddle(
   const ribPlateArea_m2 = (150 / 1000) * (saddleHeightMm / 1000);
   const plateTm = plateTmm / 1000;
   const saddleWeight1 = (basePlateArea_m2 + webPlateArea_m2 + 6 * ribPlateArea_m2) * plateTm * density;
-  const totalSaddleWeight = saddleWeight1 * 2;
+  const totalSaddleWeight = saddleWeight1 * 2 * quantity;
 
   return {
     QN: Q,
@@ -581,6 +672,78 @@ export function calculateZickSaddle(
     sigma2Pass: sigma2 <= S_MPa,
     saddleWeightKg: totalSaddleWeight,
     totalSaddleCost: totalSaddleWeight * pricePerKg,
+    derivedAngle: theta,
+    derivedWidth: b,
+    derivedDistanceA: A,
+  };
+}
+
+// ─── Live ASME preview (pure, no side-effects) ───
+
+export interface LiveASMEPreviewResult {
+  allowableStressMPa: number | null;
+  shellTminMm: number | null;
+  headTminMm: number | null;
+  recommendedShellNominalMm: number | null;
+  recommendedHeadNominalMm: number | null;
+}
+
+export function liveASMEPreview(params: {
+  materialType: MaterialType;
+  designPressureKPa: number;
+  liquidHeadKPa: number;
+  designTempC: number;
+  jointEfficiency: number;
+  corrosionAllowanceMm: number;
+  diameterMm: number;
+  diameterType: DiameterType;
+  headType: HeadType;
+}): LiveASMEPreviewResult {
+  const nullResult: LiveASMEPreviewResult = {
+    allowableStressMPa: null,
+    shellTminMm: null,
+    headTminMm: null,
+    recommendedShellNominalMm: null,
+    recommendedHeadNominalMm: null,
+  };
+
+  const { materialType, designPressureKPa, liquidHeadKPa, designTempC, jointEfficiency, corrosionAllowanceMm, diameterMm, diameterType, headType } = params;
+
+  if (
+    !designPressureKPa || designPressureKPa <= 0 ||
+    !designTempC || designTempC <= 0 ||
+    !jointEfficiency || jointEfficiency <= 0 ||
+    !diameterMm || diameterMm <= 0
+  ) {
+    return nullResult;
+  }
+
+  let allowableStressMPa: number;
+  try {
+    allowableStressMPa = getASMEAllowableStress(materialType, designTempC);
+  } catch {
+    return nullResult;
+  }
+
+  const totalPressureMPa = (designPressureKPa + (liquidHeadKPa ?? 0)) / 1000;
+
+  const R_inner_mm = diameterType === 'ID'
+    ? diameterMm / 2
+    : diameterMm / 2 - corrosionAllowanceMm;
+
+  const D_inner_mm = diameterType === 'ID'
+    ? diameterMm
+    : diameterMm - 2 * corrosionAllowanceMm;
+
+  const shellResult = calculateUG27Shell(totalPressureMPa, R_inner_mm, allowableStressMPa, jointEfficiency, corrosionAllowanceMm, materialType);
+  const headResult = calculateUG32Head(totalPressureMPa, D_inner_mm, headType, allowableStressMPa, jointEfficiency, corrosionAllowanceMm, materialType);
+
+  return {
+    allowableStressMPa,
+    shellTminMm: shellResult?.tMinMm ?? null,
+    headTminMm: headResult?.tMinMm ?? null,
+    recommendedShellNominalMm: shellResult?.nominalMm ?? null,
+    recommendedHeadNominalMm: headResult?.nominalMm ?? null,
   };
 }
 
