@@ -1,0 +1,47 @@
+I need you to make me a Pressure Vessel Costing Calculator
+
+First, I need you to make a calculator to determine the minimum required thickness of material for an ASME Section VIII, Division 1 pressure vessel. 
+
+The first option is to choose between a vertical or horizontal vessel. 
+- If it is a vertical vessel, you will need to calculate the total internal design pressure which is top pressure plus liquid head pressure. 
+- Allow me to manually override the answer for total internal design pressure. 
+- The calculator shall use the manually overridden internal design pressure as a basis of calculating the thickness of material. 
+
+Give me the option to input key parameters like:
+- design temperature
+- internal design pressure
+- vessel internal or external diameter
+- joint efficiency
+- corrosion allowance
+- and whether it is SA516 Grade 70 carbon steel or SS304 or SS316 stainless steel. 
+
+Look up the allowable stress of these materials. 
+- You should use formulas from UG-27 for cylindrical shells and UG-32 for heads, for example ellipsoidal or torispherical, with final nominal thickness including forming tolerance. 
+
+When you determine the minimum required thickness of material:
+- check against the following material thickness available
+- recommend the closest thickness to it. 
+- Don’t go thinner, always go thicker than the calculated thickness. 
+
+The standard thickness of SA516 Grade 70 carbon steel plates are 6.40mm, 8.00mm, 9.60mm, 12.70mm, 15.90mm, 19.10mm, 22.30mm and 25.40mm. 
+The standard thickness of stainless steel plates are 5mm, 6mm, 8mm, 10mm, 12mm, 16mm, 22mm and 25mm.
+
+---
+
+Next, I want the option to input the number of filter plates. 
+- Filter plates are typically circular plates that are the same diameter as the internal diameter of the shell. 
+- Filter plates are typically 22.30mm thick for carbon steel tanks and 22mm for stainless steel tanks.
+
+---
+
+Next, I want the option to input a number of manholes and nozzles and their sizes. 
+- The Standards I want to input should be either B16.5 or PN10 or PN16. 
+- Manhole diameters are usually 150# 24 inches or DIN 600. 
+- Allow me to choose between Slip-On Raised Face or Weld neck flanges. 
+- For any number of manholes, I need you to automatically include the appropriate manhole blind flange and calculate for me the quantities of machined hex bolts, including bolt length, nuts and two washers for all the manholes.
+
+---
+
+Next, if I choose a vertical vessel, then the vessel will have four pipes for legs. Let me input the length and diameter of the legs. By default, add 4 square plates for the bottom of the legs. The length of each square plate is 10 percent more than the outer diameter of the leg. If I chose a horizontal vessel, then there won’t be legs, instead there will be two saddles. 
+
+Use the ASME Section VIII, Div. 1 rules and Zick analysis to calculate the quantity of material needed.

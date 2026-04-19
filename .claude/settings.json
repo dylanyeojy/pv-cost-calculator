@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs wc:*)",
+      "Bash(git -C /c/Users/Dylan/Downloads/vessel-cost-builder-main/vessel-cost-builder-main log --oneline -20)"
+    ]
+  }
+}
