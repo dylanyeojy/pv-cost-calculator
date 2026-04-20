@@ -708,14 +708,17 @@ function InvoicePanel({
 // ─── Main Results page ───
 
 export default function Results() {
-  const { results, usingFallbackPricing, clearForm } = useAppContext();
+  const { results, projectResults, usingFallbackPricing, clearForm } = useAppContext();
   const navigate = useNavigate();
   const [shellSelectedIndex, setShellSelectedIndex] = useState(0);
   const [dishSelectedIndex, setDishSelectedIndex] = useState(0);
+  const [activeVesselTab, setActiveVesselTab] = useState(0);
 
+  // Reset tab indices when switching vessel tabs
+  useEffect(() => { setShellSelectedIndex(0); setDishSelectedIndex(0); }, [activeVesselTab]);
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
-  if (!results) {
+  if (!results && !projectResults) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
         <p className="text-muted-foreground mb-4">No results yet. Run a calculation first.</p>
@@ -724,7 +727,23 @@ export default function Results() {
     );
   }
 
-  const { inputs, od, id, circumference, netShellAreaM2, shellOptions, dishEnd } = results;
+  const isSummaryTab = projectResults !== null && activeVesselTab >= projectResults.vessels.length;
+
+  // In multi-vessel mode use the active tab's results; otherwise use single results
+  const activeResults = projectResults
+    ? (isSummaryTab ? null : projectResults.vessels[activeVesselTab]?.results ?? null)
+    : results;
+
+  if (!activeResults && !isSummaryTab) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <p className="text-muted-foreground mb-4">No results yet. Run a calculation first.</p>
+        <Button onClick={() => navigate('/')}>New Estimate</Button>
+      </div>
+    );
+  }
+
+  const { inputs, od, id, circumference, netShellAreaM2, shellOptions, dishEnd } = activeResults ?? ({} as typeof activeResults);
   const materialLabel = inputs.materialType;
 
   const shellOption = shellOptions[shellSelectedIndex];
@@ -733,14 +752,14 @@ export default function Results() {
   const shellMaterialCost = shellOption?.cost ?? 0;
   const shellCost = shellMaterialCost;
   const dishCost = dishOption?.cost ?? 0;
-  const filterPlateCost = results.filterPlates?.totalCost ?? 0;
-  const nozzleNeckCost = results.nozzleBOM
-    ? results.nozzleBOM.reduce((sum, item) => sum + (item.neckCostRM ?? 0), 0)
+  const filterPlateCost = activeResults?.filterPlates?.totalCost ?? 0;
+  const nozzleNeckCost = activeResults?.nozzleBOM
+    ? activeResults.nozzleBOM.reduce((sum, item) => sum + (item.neckCostRM ?? 0), 0)
     : 0;
-  const supportCost = results.support?.type === 'legs'
-    ? (results.support.legs?.totalCost ?? 0)
-    : results.support?.type === 'saddles'
-      ? (results.support.saddles?.totalSaddleCost ?? 0)
+  const supportCost = activeResults?.support?.type === 'legs'
+    ? (activeResults.support.legs?.totalCost ?? 0)
+    : activeResults?.support?.type === 'saddles'
+      ? (activeResults.support.saddles?.totalSaddleCost ?? 0)
       : 0;
   const combinedCost = shellCost + dishCost + filterPlateCost + nozzleNeckCost + supportCost;
 
@@ -783,10 +802,10 @@ export default function Results() {
         dishGroups={dishGroups}
         dishCost={dishCost}
         filterPlateCost={filterPlateCost}
-        filterPlateCount={results.filterPlates?.count ?? 0}
+        filterPlateCount={activeResults?.filterPlates?.count ?? 0}
         nozzleNeckCost={nozzleNeckCost}
         supportCost={supportCost}
-        supportType={results.support?.type ?? null}
+        supportType={activeResults?.support?.type ?? null}
         combinedCost={combinedCost}
       />
 
@@ -801,7 +820,85 @@ export default function Results() {
         </div>
       )}
 
-      {/* Two-column grid */}
+      {/* Multi-vessel tab bar */}
+      {projectResults && (
+        <div className="flex gap-1 mb-6 flex-wrap border-b border-border pb-0">
+          {projectResults.vessels.map((v, i) => (
+            <button
+              key={v.vesselId}
+              type="button"
+              onClick={() => setActiveVesselTab(i)}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-colors ${
+                activeVesselTab === i
+                  ? 'bg-background border-border text-foreground -mb-px'
+                  : 'bg-muted/40 border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/70'
+              }`}
+            >
+              {v.vesselName}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setActiveVesselTab(projectResults.vessels.length)}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-colors ${
+              isSummaryTab
+                ? 'bg-background border-border text-foreground -mb-px'
+                : 'bg-muted/40 border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/70'
+            }`}
+          >
+            ∑ Summary
+          </button>
+        </div>
+      )}
+
+      {/* Summary tab */}
+      {isSummaryTab && projectResults && (
+        <div className="space-y-6">
+          <div className="rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/60 text-muted-foreground text-xs uppercase tracking-wider">
+                  <th className="text-left px-4 py-3 font-medium">Vessel</th>
+                  <th className="text-right px-4 py-3 font-medium">OD (mm)</th>
+                  <th className="text-right px-4 py-3 font-medium">Length (mm)</th>
+                  <th className="text-right px-4 py-3 font-medium">Qty</th>
+                  <th className="text-right px-4 py-3 font-medium">Unit Cost</th>
+                  <th className="text-right px-4 py-3 font-medium">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {projectResults.vessels.map((v) => {
+                  const qty = v.vesselInputs.quantity || 1;
+                  return (
+                    <tr key={v.vesselId} className="bg-background hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3 font-medium">{v.vesselName}</td>
+                      <td className="px-4 py-3 text-right font-mono">{formatNumber(v.results.od, 0)}</td>
+                      <td className="px-4 py-3 text-right font-mono">{formatNumber(v.vesselInputs.shellLength, 0)}</td>
+                      <td className="px-4 py-3 text-right font-mono">×{qty}</td>
+                      <td className="px-4 py-3 text-right font-mono">{formatCurrency(v.results.grandTotal)}</td>
+                      <td className="px-4 py-3 text-right font-mono font-semibold">{formatCurrency(v.results.grandTotal * qty)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-foreground text-background">
+                  <td colSpan={5} className="px-4 py-3 font-semibold text-sm uppercase tracking-wide">Project Total</td>
+                  <td className="px-4 py-3 text-right font-mono font-bold text-base">{formatCurrency(projectResults.grandTotal)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" size="sm" onClick={() => { clearForm(); navigate('/'); }}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> New Estimate
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Per-vessel / single-vessel content */}
+      {!isSummaryTab && (
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_520px] gap-10 items-start">
 
       {/* ── LEFT COLUMN ── */}
@@ -1007,7 +1104,7 @@ export default function Results() {
       )}
 
       {/* Filter Plate Options */}
-      {results.filterPlates && results.filterPlates.count > 0 && (
+      {activeResults?.filterPlates && activeResults?.filterPlates.count > 0 && (
         <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold">Filter Plate Options</CardTitle>
@@ -1016,27 +1113,27 @@ export default function Results() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground text-xs">Quantity</p>
-                <p className="font-semibold">{results.filterPlates.count}</p>
+                <p className="font-semibold">{activeResults?.filterPlates.count}</p>
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">Blank Diameter</p>
-                <p className="font-mono font-semibold">{formatNumber(results.filterPlates.diameterMm, 1)} mm</p>
+                <p className="font-mono font-semibold">{formatNumber(activeResults?.filterPlates.diameterMm, 1)} mm</p>
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">Plate Thickness</p>
-                <p className="font-mono font-semibold">{results.filterPlates.thicknessMm} mm</p>
+                <p className="font-mono font-semibold">{activeResults?.filterPlates.thicknessMm} mm</p>
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">Weight per plate</p>
-                <p className="font-mono font-semibold">{results.filterPlates.weightPerPlateKg.toFixed(1)} kg</p>
+                <p className="font-mono font-semibold">{activeResults?.filterPlates.weightPerPlateKg.toFixed(1)} kg</p>
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">Total weight</p>
-                <p className="font-mono font-semibold">{results.filterPlates.totalWeightKg.toFixed(1)} kg</p>
+                <p className="font-mono font-semibold">{activeResults?.filterPlates.totalWeightKg.toFixed(1)} kg</p>
               </div>
               <div className="md:col-span-3">
                 <p className="text-muted-foreground text-xs">Material Cost</p>
-                <p className="font-mono font-bold text-primary">{formatCurrency(results.filterPlates.totalCost)}</p>
+                <p className="font-mono font-bold text-primary">{formatCurrency(activeResults?.filterPlates.totalCost)}</p>
               </div>
             </div>
           </CardContent>
@@ -1044,17 +1141,17 @@ export default function Results() {
       )}
 
       {/* Manholes & Nozzles */}
-      {results.nozzleBOM && results.nozzleBOM.length > 0 && (
+      {activeResults?.nozzleBOM && activeResults?.nozzleBOM.length > 0 && (
         <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold">Manholes & Nozzles</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
             {/* Manholes */}
-            {results.nozzleBOM.filter(item => item.spec.type === 'manhole').length > 0 && (
+            {activeResults?.nozzleBOM.filter(item => item.spec.type === 'manhole').length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Manholes</h3>
-                {results.nozzleBOM.filter(item => item.spec.type === 'manhole').map((item, idx) => (
+                {activeResults?.nozzleBOM.filter(item => item.spec.type === 'manhole').map((item, idx) => (
                   <div key={idx} className="rounded-lg bg-secondary/30 p-3 space-y-2 text-sm">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       <div>
@@ -1110,10 +1207,10 @@ export default function Results() {
             )}
 
             {/* Nozzles */}
-            {results.nozzleBOM.filter(item => item.spec.type === 'nozzle').length > 0 && (
+            {activeResults?.nozzleBOM.filter(item => item.spec.type === 'nozzle').length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Nozzles</h3>
-                {results.nozzleBOM.filter(item => item.spec.type === 'nozzle').map((item, idx) => (
+                {activeResults?.nozzleBOM.filter(item => item.spec.type === 'nozzle').map((item, idx) => (
                   <div key={idx} className="rounded-lg bg-secondary/30 p-3 space-y-2 text-sm">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       <div>
@@ -1152,16 +1249,16 @@ export default function Results() {
       )}
 
       {/* Leg Supports / Saddle */}
-      {results.support && (
+      {activeResults?.support && (
         <Card className="glass-card card-shadow-lg border-2 border-border/50 rounded-xl">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold">
-              {results.support.type === 'legs' ? 'Leg Supports' : 'Saddle Supports — Zick Analysis'}
+              {activeResults?.support.type === 'legs' ? 'Leg Supports' : 'Saddle Supports — Zick Analysis'}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {results.support.type === 'legs' && results.support.legs && (() => {
-              const l = results.support.legs;
+            {activeResults?.support.type === 'legs' && activeResults?.support.legs && (() => {
+              const l = activeResults?.support.legs;
               return (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                   <div><p className="text-xs text-muted-foreground">Pipe OD</p><p className="font-semibold">{l.od_mm} mm</p></div>
@@ -1177,8 +1274,8 @@ export default function Results() {
                 </div>
               );
             })()}
-            {results.support.type === 'saddles' && results.support.saddles && (() => {
-              const z = results.support.saddles;
+            {activeResults?.support.type === 'saddles' && activeResults?.support.saddles && (() => {
+              const z = activeResults?.support.saddles;
               return (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
@@ -1258,10 +1355,10 @@ export default function Results() {
           dishQuantity={dishEnd?.inputs.quantity ?? 0}
           dishCost={dishCost}
           filterPlateCost={filterPlateCost}
-          filterPlateCount={results.filterPlates?.count ?? 0}
+          filterPlateCount={activeResults?.filterPlates?.count ?? 0}
           nozzleNeckCost={nozzleNeckCost}
           supportCost={supportCost}
-          supportType={results.support?.type ?? null}
+          supportType={activeResults?.support?.type ?? null}
           combinedCost={combinedCost}
           vesselQuantity={inputs.quantity ?? 1}
           onPrint={() => window.print()}
@@ -1269,7 +1366,9 @@ export default function Results() {
         />
       </div>
 
-      </div>{/* end grid */}
+      </div>
+      )}
+
       </div>{/* end screen-only */}
     </div>
   );

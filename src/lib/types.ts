@@ -275,6 +275,29 @@ export interface CalculationResults {
   support?: SupportResult;
 }
 
+export interface VesselEntry {
+  id: string;
+  name: string;
+  savedInputs: VesselInputs;
+  savedDishEnd: DishEndInputs;
+}
+
+export interface VesselCalculationResult {
+  vesselId: string;
+  vesselName: string;
+  vesselInputs: VesselInputs;
+  dishEndInputs: DishEndInputs;
+  results: CalculationResults;
+}
+
+export interface ProjectResults {
+  projectName: string;
+  tagNumber: string;
+  timestamp: number;
+  vessels: VesselCalculationResult[];
+  grandTotal: number;
+}
+
 export interface HistoryEntry {
   id: string;
   projectName: string;
@@ -285,6 +308,8 @@ export interface HistoryEntry {
   grandTotal: number;
   timestamp: number;
   results: CalculationResults;
+  isProjectEntry?: boolean;
+  vessels?: VesselCalculationResult[];
 }
 
 export const CS_THICKNESSES = [6.40, 8.00, 9.60, 12.70, 15.90, 19.10, 22.30, 25.40];

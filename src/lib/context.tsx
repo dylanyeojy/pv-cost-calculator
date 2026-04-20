@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { VesselInputs, CalculationResults, PricingData, DEFAULT_PRICING, AdvancedSettings, DEFAULT_ADVANCED, HistoryEntry, MaterialType, DishEndInputs, HeadType, VesselOrientation, NozzleSpec, LegInputs, SaddleInputs } from './types';
+import { VesselInputs, CalculationResults, PricingData, DEFAULT_PRICING, AdvancedSettings, DEFAULT_ADVANCED, HistoryEntry, MaterialType, DishEndInputs, HeadType, VesselOrientation, NozzleSpec, LegInputs, SaddleInputs, VesselEntry, VesselCalculationResult, ProjectResults } from './types';
 import { calculateAll, getASMEAllowableStress, calculateLiquidHead, calculateUG27Shell, calculateUG32Head, calculateFilterPlates, calculateNozzleBOM, calculateLegs, calculateZickSaddle, calculateManholeNeckBlanks } from './calculations';
 import { calculateDishEnd, suggestedSF } from './dishEndCalculations';
 import { fetchHistory, saveEstimate, deleteEstimate, fetchPricing, savePricing, fetchAdvanced, saveAdvanced } from './firestore';
@@ -13,6 +13,8 @@ interface AppContextValue {
   dishEndEnabled: boolean;
   results: CalculationResults | null;
   setResults: React.Dispatch<React.SetStateAction<CalculationResults | null>>;
+  projectResults: ProjectResults | null;
+  setProjectResults: React.Dispatch<React.SetStateAction<ProjectResults | null>>;
   pricing: PricingData;
   setPricing: React.Dispatch<React.SetStateAction<PricingData>>;
   advancedSettings: AdvancedSettings;
@@ -22,6 +24,7 @@ interface AppContextValue {
   history: HistoryEntry[];
   historyLoading: boolean;
   runCalculation: () => Promise<CalculationResults>;
+  runProjectCalculation: (vessels: VesselEntry[], dishEndMap: Record<string, DishEndInputs>) => Promise<void>;
   clearForm: () => void;
   loadFromHistory: (entry: HistoryEntry) => void;
   deleteFromHistory: (id: string) => Promise<void>;
@@ -43,13 +46,13 @@ const defaultInputs: VesselInputs = {
   quantity: 1,
   orientation: 'vertical' as VesselOrientation,
   jointEfficiency: 0.85,
-  corrosionAllowance: 3,
+  corrosionAllowance: 0,
   totalDesignPressureOverride: 0,
   filterPlateCount: 0,
   globalNozzleStandard: 'B16.5',
   filterPlateThickness: 22.30,
   nozzles: [] as NozzleSpec[],
-  legInputs: { diameter: 4, length: 1500, quantity: 4 } as LegInputs,
+  legInputs: { diameter: 4, length: 0, quantity: 4 } as LegInputs,
   saddleInputs: { quantity: 2 } as SaddleInputs,
 };
 
@@ -68,6 +71,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [dishEndInputs, setDishEndInputs] = useState<DishEndInputs>(defaultDishEndInputs);
   const dishEndEnabled = dishEndInputs.quantity > 0;
   const [results, setResults] = useState<CalculationResults | null>(null);
+  const [projectResults, setProjectResults] = useState<ProjectResults | null>(null);
   const [pricing, setPricing] = useState<PricingData>(DEFAULT_PRICING);
   const [advancedSettings, setAdvancedSettings] = useState<AdvancedSettings>(DEFAULT_ADVANCED);
   const [usingFallbackPricing, setUsingFallbackPricing] = useState(true);
@@ -97,41 +101,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .catch(err => console.error('Failed to fetch advanced settings:', err));
   }, []);
 
-  const runCalculation = async () => {
-    const vesselOD_mm = inputs.diameterType === 'OD'
-      ? inputs.diameter
-      : inputs.diameter + 2 * inputs.plateThickness;
-    const neckBlanks = calculateManholeNeckBlanks(inputs.nozzles, vesselOD_mm);
-    const calc = calculateAll(inputs, pricing, advancedSettings, neckBlanks);
+  const calcSingleVessel = (inp: VesselInputs, dishEnd: DishEndInputs): CalculationResults => {
+    const vesselOD_mm = inp.diameterType === 'OD'
+      ? inp.diameter
+      : inp.diameter + 2 * inp.plateThickness;
+    const neckBlanks = calculateManholeNeckBlanks(inp.nozzles, vesselOD_mm);
+    const calc = calculateAll(inp, pricing, advancedSettings, neckBlanks);
 
-    // Calculate dish end if quantity > 0
-    if (dishEndInputs.quantity > 0 && inputs.diameter > 0) {
+    if (dishEnd.quantity > 0 && inp.diameter > 0) {
       const { od, id } = calc;
-      const dishResult = calculateDishEnd(dishEndInputs, id, od, pricing, inputs.materialType);
+      const dishResult = calculateDishEnd(dishEnd, id, od, pricing, inp.materialType);
       calc.dishEnd = dishResult;
-
-      // Add dish end best cost to grand total
       if (dishResult.nestingOptions.length > 0) {
         calc.grandTotal += (dishResult.nestingOptions[0].cost ?? 0);
       }
     }
 
-    // ─── Phase 2: ASME thickness ───
     const { id } = calc;
-    if (inputs.designPressure > 0 && inputs.designTemperature >= 20 && inputs.designTemperature <= 400) {
+    if (inp.designPressure > 0 && inp.designTemperature >= 20 && inp.designTemperature <= 400) {
       try {
-        const S = getASMEAllowableStress(inputs.materialType, inputs.designTemperature);
-        const P_top_MPa = inputs.designPressure / 1000; // kPa → MPa
-        const liquidMPa = inputs.orientation === 'vertical'
-          ? calculateLiquidHead(inputs.shellLength)
-          : 0;
-        const P_total = inputs.totalDesignPressureOverride > 0
-          ? inputs.totalDesignPressureOverride / 1000
+        const S = getASMEAllowableStress(inp.materialType, inp.designTemperature);
+        const P_top_MPa = inp.designPressure / 1000;
+        const liquidMPa = inp.orientation === 'vertical' ? calculateLiquidHead(inp.shellLength) : 0;
+        const P_total = inp.totalDesignPressureOverride > 0
+          ? inp.totalDesignPressureOverride / 1000
           : P_top_MPa + liquidMPa;
         const R_mm = id / 2;
-        const shellResult = calculateUG27Shell(P_total, R_mm, S, inputs.jointEfficiency, inputs.corrosionAllowance, inputs.materialType);
+        const shellResult = calculateUG27Shell(P_total, R_mm, S, inp.jointEfficiency, inp.corrosionAllowance, inp.materialType);
         const headType = calc.dishEnd ? calc.dishEnd.inputs.headType : 'ellipsoidal';
-        const headResult = calculateUG32Head(P_total, id, headType, S, inputs.jointEfficiency, inputs.corrosionAllowance, inputs.materialType);
+        const headResult = calculateUG32Head(P_total, id, headType, S, inp.jointEfficiency, inp.corrosionAllowance, inp.materialType);
         calc.asmeThickness = {
           totalDesignPressureMPa: P_total,
           liquidHeadMPa: liquidMPa,
@@ -144,44 +142,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
           headNominalMm: headResult.nominalMm,
         };
       } catch {
-        // Out-of-range temperature — skip silently (form validation catches it)
+        // Out-of-range temperature — skip silently
       }
     }
 
-    // ─── Phase 2: Filter plates ───
-    if (inputs.filterPlateCount > 0) {
-      const pricePerKg = inputs.materialType === 'SA516 Gr 70' ? pricing.cs_plate_per_kg : pricing.ss_plate_per_kg;
-      calc.filterPlates = calculateFilterPlates(inputs.filterPlateCount, id, inputs.materialType, pricePerKg, inputs.filterPlateThickness);
+    if (inp.filterPlateCount > 0) {
+      const pricePerKg = inp.materialType === 'SA516 Gr 70' ? pricing.cs_plate_per_kg : pricing.ss_plate_per_kg;
+      calc.filterPlates = calculateFilterPlates(inp.filterPlateCount, id, inp.materialType, pricePerKg, inp.filterPlateThickness);
       calc.grandTotal += calc.filterPlates.totalCost;
     }
 
-    // ─── Phase 2: Nozzle BOM ───
-    if (inputs.nozzles.length > 0) {
-      calc.nozzleBOM = calculateNozzleBOM(inputs.nozzles, inputs.globalNozzleStandard, pricing);
+    if (inp.nozzles.length > 0) {
+      calc.nozzleBOM = calculateNozzleBOM(inp.nozzles, inp.globalNozzleStandard, pricing);
     }
 
-    // ─── Phase 2: Supports ───
-    const supportPricePerKg = inputs.materialType === 'SA516 Gr 70' ? pricing.cs_plate_per_kg : pricing.ss_plate_per_kg;
-    if (inputs.orientation === 'vertical') {
-      const legs = calculateLegs(inputs.legInputs, inputs.materialType, supportPricePerKg);
+    const supportPricePerKg = inp.materialType === 'SA516 Gr 70' ? pricing.cs_plate_per_kg : pricing.ss_plate_per_kg;
+    if (inp.orientation === 'vertical') {
+      const legs = calculateLegs(inp.legInputs, inp.materialType, supportPricePerKg);
       if (legs) {
         calc.support = { type: 'legs', legs };
         calc.grandTotal += legs.totalCost;
       }
     } else {
-      const shellWeightN = calc.shellOptions[0]
-        ? (calc.shellOptions[0].totalWeight ?? 0) * 9.81
-        : 0;
+      const shellWeightN = calc.shellOptions[0] ? (calc.shellOptions[0].totalWeight ?? 0) * 9.81 : 0;
       const headWeightN = calc.dishEnd ? calc.dishEnd.totalWeightKg * 9.81 : 0;
       const totalWeightN = shellWeightN + headWeightN;
       if (totalWeightN > 0 && calc.asmeThickness) {
         const H_mm = id / 4;
         const saddles = calculateZickSaddle(
-          { L: inputs.shellLength, OD: calc.od, t: inputs.plateThickness, H: H_mm },
-          inputs.saddleInputs,
+          { L: inp.shellLength, OD: calc.od, t: inp.plateThickness, H: H_mm },
+          inp.saddleInputs,
           totalWeightN,
           calc.asmeThickness.allowableStressMPa,
-          inputs.materialType,
+          inp.materialType,
           supportPricePerKg,
         );
         calc.support = { type: 'saddles', saddles };
@@ -189,7 +182,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    return calc;
+  };
+
+  const runCalculation = async () => {
+    const calc = calcSingleVessel(inputs, dishEndInputs);
     setResults(calc);
+    setProjectResults(null);
 
     const entry: HistoryEntry = {
       id: crypto.randomUUID(),
@@ -204,7 +203,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     try {
-      // JSON round-trip strips undefined fields which Firestore rejects
       const serializable = JSON.parse(JSON.stringify(entry)) as HistoryEntry;
       const firestoreId = await saveEstimate(serializable);
       entry.id = firestoreId;
@@ -216,6 +214,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     setHistory(prev => [entry, ...prev].slice(0, 50));
     return calc;
+  };
+
+  const runProjectCalculation = async (vessels: VesselEntry[], dishEndMap: Record<string, DishEndInputs>) => {
+    const timestamp = Date.now();
+    const vesselResults: VesselCalculationResult[] = vessels.map(v => ({
+      vesselId: v.id,
+      vesselName: v.name,
+      vesselInputs: v.savedInputs,
+      dishEndInputs: dishEndMap[v.id] ?? v.savedDishEnd,
+      results: calcSingleVessel(v.savedInputs, dishEndMap[v.id] ?? v.savedDishEnd),
+    }));
+
+    const grandTotal = vesselResults.reduce(
+      (sum, v) => sum + v.results.grandTotal * (v.vesselInputs.quantity || 1),
+      0,
+    );
+
+    const proj: ProjectResults = {
+      projectName: vessels[0]?.savedInputs.projectName ?? '',
+      tagNumber: vessels[0]?.savedInputs.tagNumber ?? '',
+      timestamp,
+      vessels: vesselResults,
+      grandTotal,
+    };
+
+    setProjectResults(proj);
+    setResults(null);
+
+    const firstVessel = vesselResults[0];
+    const entry: HistoryEntry = {
+      id: crypto.randomUUID(),
+      projectName: proj.projectName,
+      tagNumber: proj.tagNumber,
+      materialType: firstVessel?.vesselInputs.materialType ?? ('SA516 Gr 70' as MaterialType),
+      od: firstVessel?.results.od ?? 0,
+      shellLength: firstVessel?.vesselInputs.shellLength ?? 0,
+      grandTotal: proj.grandTotal,
+      timestamp,
+      results: firstVessel?.results ?? ({} as CalculationResults),
+      isProjectEntry: true,
+      vessels: vesselResults,
+    };
+
+    try {
+      const serializable = JSON.parse(JSON.stringify(entry)) as HistoryEntry;
+      const firestoreId = await saveEstimate(serializable);
+      entry.id = firestoreId;
+      toast.success(`Project saved — ${vessels.length} vessels`);
+    } catch (err: any) {
+      console.error('Failed to save project estimate:', err);
+      toast.error(`Failed to save: ${err?.message ?? 'Unknown error'}`);
+    }
+
+    setHistory(prev => [entry, ...prev].slice(0, 50));
   };
 
   const clearForm = () => {
@@ -265,9 +317,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       inputs, setInputs,
       dishEndInputs, setDishEndInputs, dishEndEnabled,
       results, setResults,
+      projectResults, setProjectResults,
       pricing, setPricing, advancedSettings, setAdvancedSettings, usingFallbackPricing, setUsingFallbackPricing,
       history, historyLoading,
-      runCalculation, clearForm, loadFromHistory, deleteFromHistory, savePricingToFirestore, saveAdvancedToFirestore,
+      runCalculation, runProjectCalculation, clearForm, loadFromHistory, deleteFromHistory, savePricingToFirestore, saveAdvancedToFirestore,
     }}>
       {children}
     </AppContext.Provider>
